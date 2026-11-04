@@ -158,3 +158,23 @@ export async function logoutUser(refreshToken: string) {
   const hashed = hashRefreshToken(refreshToken);
   await SessionModel.deleteOne({ refreshTokenHash: hashed });
 }
+/**
+ * Changes a signed-in user's password after checking the current one. Every other session of the
+ * user is revoked; the session whose refresh token is given (the caller's own) is kept.
+ */
+export async function changePassword(userId: string, currentPassword: string, newPassword: string, keepRefreshToken?: string) {
+  if (!currentPassword || !newPassword) throw new AppError("currentPassword and newPassword are required", 400);
+  if (newPassword.length < 8) throw new AppError("New password must be at least 8 characters", 400);
+  if (newPassword === currentPassword) throw new AppError("New password must differ from the current password", 400);
+
+  const user = await UserModel.findById(userId).select("+passwordHash");
+  if (!user || !user.isActive) throw new AppError("User not found", 404);
+  if (!(await comparePassword(currentPassword, user.passwordHash))) {
+    throw new AppError("Current password is incorrect", 400);
+  }
+
+  user.passwordHash = await hashPassword(newPassword);
+  await user.save();
+  const keep = keepRefreshToken ? hashRefreshToken(keepRefreshToken) : undefined;
+  await SessionModel.deleteMany({ userId: user._id, ...(keep ? { refreshTokenHash: { $ne: keep } } : {}) });
+}

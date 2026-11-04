@@ -7,7 +7,10 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed": "tsx src/scripts/seed.ts -- --confirm"
+    "seed": "tsx src/scripts/seed.ts -- --confirm",
+    "seed:detections": "tsx src/scripts/seed-demo-detections.ts",
+    "test:anchor": "tsx --test src/tests/cti_anchor.unit.test.ts src/tests/cti_anchor.localchain.test.ts",
+    "blockchain:status": "tsx src/scripts/blockchain-status.ts"
   },
   "dependencies": {
     "@ransomware-cti/shared-types": "*",

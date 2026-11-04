@@ -1,102 +1,40 @@
 import { IOCType, ThreatIntelIOC, CTIMatchResult } from "@ransomware-cti/shared-types";
+import fs from "fs";
+import path from "path";
 import { ThreatIntelProvider } from "./threatIntel.provider";
+
+function loadConfiguredIndicators(): ThreatIntelIOC[] {
+  const file = process.env.THREAT_INTEL_IOC_FILE;
+  if (!file) return [];
+  const parsed = JSON.parse(fs.readFileSync(path.resolve(file), "utf-8"));
+  const list = Array.isArray(parsed) ? parsed : parsed?.iocs;
+  if (!Array.isArray(list)) throw new Error(`THREAT_INTEL_IOC_FILE ${file}: expected an array of indicators`);
+  for (const ioc of list) {
+    if (!ioc?.indicator || !ioc?.type || typeof ioc.isMalicious !== "boolean") {
+      throw new Error(`THREAT_INTEL_IOC_FILE ${file}: every indicator needs indicator, type and isMalicious`);
+    }
+  }
+  return list;
+}
 
 export class LocalThreatIntelProvider implements ThreatIntelProvider {
   public name = "SentinelIQ Local Threat Intel Provider";
 
-  private iocs: ThreatIntelIOC[] = [
-    {
-      indicator: "malicious.example.com",
-      type: "DOMAIN",
-      isMalicious: true,
-      confidence: 94,
-      severity: "CRITICAL",
-      threatCategory: "Ransomware C2",
-      tags: ["ransomware", "c2", "command-and-control", "active-campaign"],
-      source: "SentinelIQ Global Threat Feed",
-      firstSeen: "2026-01-15T08:00:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "Active Command & Control domain associated with automated ransomware staging.",
-    },
-    {
-      indicator: "ransomware-payload.cc",
-      type: "DOMAIN",
-      isMalicious: true,
-      confidence: 96,
-      severity: "CRITICAL",
-      threatCategory: "Malware Drop",
-      tags: ["payload-delivery", "ransomware", "lockbit"],
-      source: "SentinelIQ Curated Intelligence",
-      firstSeen: "2026-02-01T12:00:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "Known staging domain hosting secondary payload encryptors.",
-    },
-    {
-      indicator: "198.51.100.23",
-      type: "IP",
-      isMalicious: true,
-      confidence: 91,
-      severity: "HIGH",
-      threatCategory: "Command & Control",
-      tags: ["c2", "botnet", "beaconing"],
-      source: "SentinelIQ Local CTI",
-      firstSeen: "2026-01-20T10:30:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "Fast-flux IP address observed receiving periodic telemetry bursts.",
-    },
-    {
-      indicator: "203.0.113.88",
-      type: "IP",
-      isMalicious: true,
-      confidence: 98,
-      severity: "CRITICAL",
-      threatCategory: "Data Exfiltration Gateway",
-      tags: ["exfiltration", "ransomware", "double-extortion"],
-      source: "SentinelIQ Intelligence Grid",
-      firstSeen: "2026-02-10T14:15:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "High-risk egress destination used in coordinated multi-endpoint exfiltration.",
-    },
-    {
-      indicator: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      type: "HASH",
-      isMalicious: true,
-      confidence: 99,
-      severity: "CRITICAL",
-      threatCategory: "Known Ransomware Binary",
-      tags: ["sha256", "lockbit3", "encryptor"],
-      source: "SentinelIQ Hash Registry",
-      firstSeen: "2026-01-05T00:00:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "SHA-256 fingerprint of LockBit 3.0 file system encryption engine.",
-    },
-    {
-      indicator: "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
-      type: "HASH",
-      isMalicious: true,
-      confidence: 93,
-      severity: "HIGH",
-      threatCategory: "Malicious Loader",
-      tags: ["sha256", "loader", "blackcat"],
-      source: "SentinelIQ Hash Registry",
-      firstSeen: "2026-02-12T09:00:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "SHA-256 hash of credential dumping and lateral movement staging binary.",
-    },
-    {
-      indicator: "http://malicious.example.com/beacon",
-      type: "URL",
-      isMalicious: true,
-      confidence: 95,
-      severity: "CRITICAL",
-      threatCategory: "Ransomware Beacon Endpoint",
-      tags: ["url", "beacon", "c2"],
-      source: "SentinelIQ Global Threat Feed",
-      firstSeen: "2026-01-18T16:20:00Z",
-      lastSeen: new Date().toISOString(),
-      description: "HTTP endpoint actively receiving ransomware beacon heartbeats.",
-    },
-  ];
+  private iocs: ThreatIntelIOC[];
+
+  /**
+   * Indicators come only from a configured feed file (THREAT_INTEL_IOC_FILE, a JSON array of
+   * ThreatIntelIOC records, or {"iocs": [...]}) or from the caller (tests). Without one the
+   * provider holds no indicators, and every lookup honestly reports "no match".
+   */
+  constructor(iocs?: ThreatIntelIOC[]) {
+    this.iocs = iocs ?? loadConfiguredIndicators();
+  }
+
+  /** How many indicators are loaded; 0 means no feed is configured. */
+  public get indicatorCount(): number {
+    return this.iocs.length;
+  }
 
   public async lookup(indicator: string, type?: IOCType): Promise<CTIMatchResult> {
     if (!indicator || typeof indicator !== "string") {

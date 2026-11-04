@@ -1,0 +1,2 @@
+# Phase D2 (extraction) uses the Python standard library only (Python 3.13).
+# Training dependencies are added in D4, after approval.

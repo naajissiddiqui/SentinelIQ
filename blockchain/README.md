@@ -55,3 +55,22 @@ After setting the variable, you can run the deployment with the Sepolia network:
 ```shell
 npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
 ```
+
+## Deploying CTIRegistry to Polygon Amoy
+
+Credentials are read from `apps/backend/.env` (there is no fallback key).
+
+1. Signer: `BLOCKCHAIN_PRIVATE_KEY` must be a private key you control, never a
+   Hardhat default account. To create one without the key ever being printed:
+   `cd apps/backend && npx tsx src/scripts/generate-signer-key.ts`
+   (writes the key to `.env`, prints only the address).
+2. Fund that address with Amoy testnet POL (deployment ≈ 0.016 POL; each
+   publish ≈ 0.004 POL at a 30 gwei tip).
+3. Pre-flight (no transaction sent): `DRY_RUN=1 npx hardhat run scripts/deploy.ts --network amoy`
+4. Deploy: `npm run deploy:amoy`. The script refuses public dev accounts and the
+   wrong chain, refuses to redeploy over a live contract (`FORCE_REDEPLOY=1`
+   overrides), verifies the receipt, bytecode and owner, writes
+   `deployments/amoy.json`, and sets `CTI_REGISTRY_CONTRACT_ADDRESS` and
+   `CTI_REGISTRY_DEPLOY_BLOCK` in `apps/backend/.env`.
+5. Check: `cd apps/backend && npm run blockchain:status` (same validation the
+   server runs at startup; publishing stays disabled until it passes).

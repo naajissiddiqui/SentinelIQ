@@ -85,7 +85,7 @@ export default function LoginPage() {
 
         <p className="text-center mt-5 text-[11px] flex items-center justify-center gap-1" style={{ color: MUTED }}>
           <Lock className="w-3 h-3 opacity-60" />
-          Enterprise-grade security · SSO available · SOC 2 Type II
+          Threat detection, response and verifiable threat intelligence
         </p>
       </div>
     </div>

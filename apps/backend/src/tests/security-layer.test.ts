@@ -14,10 +14,18 @@ import { EndpointActionModel } from "../models/endpointAction.model";
 import { signAccessToken } from "../utils/jwt";
 import { env } from "../config/env";
 import { threatIntelService } from "../services/cti/threatIntel.service";
+import { LocalThreatIntelProvider } from "../services/cti/localThreatIntel.provider";
+import fs from "node:fs";
+import path from "node:path";
+
+// TEST FIXTURE: invented indicators on documentation ranges; production starts with no indicators.
+const sampleIocs = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "sample-iocs.fixture.json"), "utf-8")).iocs;
 
 async function runTests() {
   console.log("=== Starting Next-Gen Security Layer Integration Tests ===");
   await connectDatabase();
+  assert.strictEqual(new LocalThreatIntelProvider().indicatorCount, 0, "no indicators unless a feed is configured");
+  threatIntelService.setProvider(new LocalThreatIntelProvider(sampleIocs));
 
   const app = createApp();
   const server: Server = await new Promise((resolve) => {

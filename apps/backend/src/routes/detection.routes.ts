@@ -7,6 +7,7 @@ import {
   ingestDetection,
   getDetections,
   getDetection,
+  getDetectionSummary,
   markResolved,
 } from "../controllers/detection.controller";
 import { getDetectionTimelineHandler } from "../controllers/timeline.controller";
@@ -20,6 +21,7 @@ router.post("/ingest", requireServiceApiKey, asyncHandler(ingestDetection));
 router.use(requireAuth);
 
 router.get("/", asyncHandler(getDetections));
+router.get("/summary", asyncHandler(getDetectionSummary)); // before /:id
 router.get("/:id", asyncHandler(getDetection));
 router.get("/:id/timeline", asyncHandler(getDetectionTimelineHandler));
 router.patch(

@@ -3,7 +3,7 @@ import './globals.css'
 import { AppProvider } from '@/components/AppProvider'
 
 export const metadata: Metadata = {
-  title: 'RansomShield CTI Platform',
+  title: 'SentinelIQ',
   description: 'ML-Powered Ransomware Detection with Blockchain-Based CTI Sharing',
 }
 

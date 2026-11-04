@@ -1,3 +1,4 @@
+from typing import List, Dict, Any, Optional
 import requests
 import config as cfg
 
@@ -13,13 +14,27 @@ def get_prediction(features: dict) -> dict:
     return response.json()
 
 
-def report_detection(risk_score: int, indicators: list):
+def report_detection(
+    risk_score: int,
+    indicators: list,
+    attack_type: str = "RANSOMWARE",
+    rule_id: Optional[str] = None,
+    confidence_tier: Optional[str] = None,
+    evidence: Optional[List[Dict[str, Any]]] = None,
+    mitre: Optional[List[Dict[str, Any]]] = None,
+    model_version: str = "agent-v1.0.0",
+):
     payload = {
         "organizationId": cfg.ORGANIZATION_ID,
         "endpointId": cfg.ENDPOINT_ID,
-        "riskScore": risk_score,
+        "riskScore": int(risk_score),
+        "attackType": attack_type,
+        "ruleId": rule_id,
+        "confidenceTier": confidence_tier,
         "indicators": indicators,
-        "modelVersion": "agent-v0.1",
+        "evidence": evidence or [],
+        "mitre": mitre or [],
+        "modelVersion": model_version,
     }
     headers = {"x-api-key": cfg.BACKEND_API_KEY}
     response = requests.post(

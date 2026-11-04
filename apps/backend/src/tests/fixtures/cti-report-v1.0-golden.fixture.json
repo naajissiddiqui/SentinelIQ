@@ -1,0 +1,57 @@
+{
+  "report": {
+    "reportId": "cti-golden-v10",
+    "schemaVersion": "v1.0",
+    "attackType": "RANSOMWARE",
+    "title": "Ransomware Incident on WS-1",
+    "detectedAt": "2026-10-01T10:00:00.000Z",
+    "severity": "CRITICAL",
+    "riskScore": 92,
+    "confidenceTier": "likely",
+    "attackSummary": "Ransomware-pattern behaviour detected.",
+    "indicatorsOfCompromise": [
+      "B",
+      "A"
+    ],
+    "recommendedActions": [
+      "x",
+      "y"
+    ],
+    "detector": {
+      "type": "xgboost",
+      "id": "RANSOMWARE-XGB",
+      "version": "xgboost-v1.0.0"
+    },
+    "evidence": [
+      {
+        "id": "ev-1",
+        "source": "sysmon",
+        "eventId": 11,
+        "time": "2026-10-01T09:59:58.000Z",
+        "description": "File created",
+        "fields": {
+          "b": 2,
+          "a": 1
+        }
+      }
+    ],
+    "mitre": [
+      {
+        "tacticId": "TA0040",
+        "tacticName": "Impact",
+        "techniqueId": "T1486",
+        "techniqueName": "Data Encrypted for Impact",
+        "attackVersion": "v14.1",
+        "referenceUrl": "https://attack.mitre.org/techniques/T1486/",
+        "evidenceRef": [
+          "ev-1"
+        ]
+      }
+    ],
+    "version": 1,
+    "hostRef": "WS-1",
+    "analystNotes": "not hashed"
+  },
+  "canonicalJson": "{\"attackSummary\":\"Ransomware-pattern behaviour detected.\",\"attackType\":\"RANSOMWARE\",\"confidenceTier\":\"likely\",\"detectedAt\":\"2026-10-01T10:00:00.000Z\",\"detector\":{\"id\":\"RANSOMWARE-XGB\",\"type\":\"xgboost\",\"version\":\"xgboost-v1.0.0\"},\"evidence\":[{\"description\":\"File created\",\"eventId\":11,\"fields\":{\"a\":1,\"b\":2},\"id\":\"ev-1\",\"source\":\"sysmon\",\"time\":\"2026-10-01T09:59:58.000Z\"}],\"indicatorsOfCompromise\":[\"A\",\"B\"],\"mitre\":[{\"attackVersion\":\"v14.1\",\"evidenceRef\":[\"ev-1\"],\"referenceUrl\":\"https://attack.mitre.org/techniques/T1486/\",\"tacticId\":\"TA0040\",\"tacticName\":\"Impact\",\"techniqueId\":\"T1486\",\"techniqueName\":\"Data Encrypted for Impact\"}],\"recommendedActions\":[\"x\",\"y\"],\"reportId\":\"cti-golden-v10\",\"riskScore\":92,\"schemaVersion\":\"v1.0\",\"severity\":\"CRITICAL\",\"title\":\"Ransomware Incident on WS-1\",\"version\":1}",
+  "contentHash": "216cd4e9a447eedaaa0c0117845fee2faa7cfa8dde656a245408d8ba19049cb0"
+}

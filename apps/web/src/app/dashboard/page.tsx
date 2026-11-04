@@ -16,7 +16,13 @@ import { useApp } from '@/lib/context'
 
 function DashboardContent() {
   const router = useRouter()
-  const { endpoints, detections, ctiReports, globalFeed, policies, cascades } = useApp()
+  const {
+    endpoints, detections, ctiReports, globalFeed, policies, cascades,
+    endpointsError, refetchEndpoints,
+    detectionSummary, detectionSummaryLoading, detectionSummaryError, refetchDetectionSummary,
+  } = useApp()
+  // Detection counts come from the server summary (all records), never from the loaded page.
+  const summary = detectionSummary
 
   // ── 1. Endpoint status metrics ───────────────────────────────────────────────
   const totalEndpoints = endpoints.length
@@ -26,14 +32,12 @@ function DashboardContent() {
   const isolatedCount = endpoints.filter(e => e.status === 'ISOLATED').length
 
   // ── 2. Detection metrics ─────────────────────────────────────────────────────
-  const activeDetections = detections.filter(
-    d => d.status === 'NEW' || d.status === 'INVESTIGATING'
-  ).length
+  const activeDetections = summary ? summary.active : null
 
   // ── 3. CTI metrics ───────────────────────────────────────────────────────────
   const ctiPublished = ctiReports.filter(r => r.status === 'PUBLISHED').length
   const ctiReceived = globalFeed.length
-  const ctiMatchCount = detections.filter(d => d.ctiMatch?.matched).length
+  const ctiMatchCount = summary ? summary.ctiMatched : '—'
 
   // ── 3b. Policy & Cascade metrics ─────────────────────────────────────────────
   const activePoliciesCount = policies.filter(p => p.enabled).length
@@ -41,29 +45,11 @@ function DashboardContent() {
   const activeCascadesCount = cascades.filter(c => c.status === 'ACTIVE').length
 
   // ── 4. 30-day detection timeline ─────────────────────────────────────────────
-  const lineData = useMemo(() => {
-    const days = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() - (29 - i))
-      d.setHours(0, 0, 0, 0)
-      return {
-        d: i + 1,
-        dateStr: d.toISOString().slice(0, 10),
-        v: 0,
-      }
-    })
-
-    detections.forEach(det => {
-      if (!det.detectedAt) return
-      const detDateStr = new Date(det.detectedAt).toISOString().slice(0, 10)
-      const match = days.find(day => day.dateStr === detDateStr)
-      if (match) {
-        match.v += 1
-      }
-    })
-
-    return days
-  }, [detections])
+  const lineData = useMemo(
+    () => (summary?.timeline ?? []).map((day) => ({ d: day.date.slice(5), dateStr: day.date, v: day.count })),
+    [summary],
+  )
+  const windowTotal = lineData.reduce((n, day) => n + day.v, 0)
 
   // ── 5. Donut chart datasets ──────────────────────────────────────────────────
   const pieData = useMemo(() => [
@@ -80,26 +66,22 @@ function DashboardContent() {
 
   // ── 6. Risk distribution breakdown ───────────────────────────────────────────
   const riskData = useMemo(() => {
-    let low = 0, med = 0, high = 0, crit = 0
-
-    detections.forEach(d => {
-      const score = d.riskScore ?? 0
-      const sev = (d.severity || '').toUpperCase()
-      if (score >= 85 || sev === 'CRITICAL') crit++
-      else if (score >= 70 || sev === 'HIGH') high++
-      else if (score >= 40 || sev === 'MEDIUM') med++
-      else low++
-    })
-
-    const total = low + med + high + crit || 1
-
-    return [
-      { label: "Low", count: low, color: GREEN, pct: totalEndpoints > 0 ? (low / total) * 100 : 0 },
-      { label: "Medium", count: med, color: AMBER, pct: totalEndpoints > 0 ? (med / total) * 100 : 0 },
-      { label: "High", count: high, color: "#F97316", pct: totalEndpoints > 0 ? (high / total) * 100 : 0 },
-      { label: "Critical", count: crit, color: RED, pct: totalEndpoints > 0 ? (crit / total) * 100 : 0 },
+    const sev = summary?.bySeverity ?? {}
+    const rows = [
+      { label: "Low", count: sev.LOW ?? 0, color: GREEN },
+      { label: "Medium", count: sev.MEDIUM ?? 0, color: AMBER },
+      { label: "High", count: sev.HIGH ?? 0, color: "#F97316" },
+      { label: "Critical", count: sev.CRITICAL ?? 0, color: RED },
     ]
-  }, [detections, totalEndpoints])
+    const total = rows.reduce((n, r) => n + r.count, 0)
+    return rows.map(r => ({ ...r, pct: total > 0 ? (r.count / total) * 100 : 0 }))
+  }, [summary])
+
+  const originRows = [
+    { label: "Recorded traffic", count: summary?.byDataOrigin.PCAP_REPLAY ?? 0 },
+    { label: "Live telemetry", count: summary?.byDataOrigin.LIVE ?? 0 },
+    { label: "Source not recorded", count: summary?.byDataOrigin.UNSPECIFIED ?? 0 },
+  ]
 
   // ── 7. Recent lists ──────────────────────────────────────────────────────────
   const recentDetections = detections.slice(0, 4)
@@ -133,6 +115,22 @@ function DashboardContent() {
         </div>
       )}
 
+      {(detectionSummaryError || endpointsError) && (
+        <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-[13px] text-red-800">
+          <span>
+            Some dashboard data could not be loaded from the server
+            {detectionSummaryError ? ` (detections: ${detectionSummaryError})` : ''}
+            {endpointsError ? ` (endpoints: ${endpointsError})` : ''}. Figures shown as — are unavailable, not zero.
+          </span>
+          <button
+            onClick={() => { refetchDetectionSummary(); refetchEndpoints() }}
+            className="px-3 h-8 rounded-lg border border-red-300 bg-white font-medium cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Primary KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -145,10 +143,12 @@ function DashboardContent() {
           },
           {
             label: "ACTIVE DETECTIONS",
-            value: `${activeDetections}`,
-            sub: activeDetections > 0 ? "Requires review" : "No active threats",
+            value: activeDetections === null ? "—" : `${activeDetections}`,
+            sub: activeDetections === null
+              ? (detectionSummaryLoading ? "Loading…" : "Unavailable")
+              : activeDetections > 0 ? "Requires review" : "No active detections",
             dot: RED,
-            alert: activeDetections > 0,
+            alert: (activeDetections ?? 0) > 0,
             path: '/detections',
           },
           {
@@ -252,7 +252,7 @@ function DashboardContent() {
         >
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-500">CTI Threat Matches</p>
-            <p className={`text-xl font-bold mt-0.5 ${ctiMatchCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+            <p className={`text-xl font-bold mt-0.5 ${typeof ctiMatchCount === 'number' && ctiMatchCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
               {ctiMatchCount}
             </p>
             <p className="text-[10px] text-slate-400 mt-0.5">Known malicious IOCs</p>
@@ -267,7 +267,9 @@ function DashboardContent() {
       <div className="grid grid-cols-3 gap-4">
         {/* Line chart */}
         <div className="col-span-2 bg-white border rounded-[10px] p-5 shadow-sm" style={{ borderColor: BORDER }}>
-          <p className="text-[13px] font-semibold mb-4" style={{ color: TEXT }}>Detections — Last 30 Days</p>
+          <p className="text-[13px] font-semibold mb-4" style={{ color: TEXT }}>
+            Detections — Last 30 Days (UTC){summary ? ` · ${windowTotal} in this period · ${summary.total} all time` : ''}
+          </p>
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={lineData} margin={{ top: 5, right: 8, bottom: 0, left: -24 }}>
               <defs>
@@ -282,6 +284,10 @@ function DashboardContent() {
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, color: TEXT }}
                 itemStyle={{ color: STORM }}
+                labelFormatter={(label, payload) => {
+                  const item = payload?.[0]?.payload
+                  return item?.dateStr ?? String(label)
+                }}
               />
               <Line
                 type="monotone"
@@ -328,6 +334,55 @@ function DashboardContent() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Detection sources and ATT&CK techniques (server summary) */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white border rounded-[10px] p-5 shadow-sm" style={{ borderColor: BORDER }}>
+          <p className="text-[13px] font-semibold mb-3" style={{ color: TEXT }}>Detection Sources</p>
+          {!summary ? (
+            <p className="text-[12px]" style={{ color: MUTED }}>{detectionSummaryLoading ? 'Loading…' : 'Unavailable'}</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {originRows.map(r => (
+                <div key={r.label} className="flex items-center justify-between text-[12px]">
+                  <span style={{ color: MUTED }}>{r.label}</span>
+                  <span className="font-semibold" style={{ color: TEXT }}>{r.count}</span>
+                </div>
+              ))}
+              <p className="text-[11px] mt-1" style={{ color: MUTED }}>
+                Recorded traffic is a network capture analysed after it was recorded, never live monitoring.
+                &quot;Source not recorded&quot; covers detections from components that do not report their data source.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="bg-white border rounded-[10px] p-5 shadow-sm" style={{ borderColor: BORDER }}>
+          <p className="text-[13px] font-semibold mb-3" style={{ color: TEXT }}>MITRE ATT&CK Techniques in Detections</p>
+          {!summary ? (
+            <p className="text-[12px]" style={{ color: MUTED }}>{detectionSummaryLoading ? 'Loading…' : 'Unavailable'}</p>
+          ) : summary.techniques.length === 0 ? (
+            <p className="text-[12px]" style={{ color: MUTED }}>No detections carry an ATT&CK mapping yet.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {summary.techniques.slice(0, 6).map(t => (
+                <div key={t.techniqueId} className="flex items-center justify-between gap-2 text-[12px]">
+                  <span className="truncate" style={{ color: TEXT }}>
+                    <span className="font-mono font-bold text-blue-700">{t.techniqueId}</span> {t.techniqueName}
+                    <span style={{ color: MUTED }}> · {t.tacticName}</span>
+                  </span>
+                  <span className="font-semibold" style={{ color: TEXT }}>{t.count}</span>
+                </div>
+              ))}
+              {summary.unmappedDetections > 0 && (
+                <p className="text-[11px] mt-1" style={{ color: MUTED }}>
+                  {summary.unmappedDetections} detection{summary.unmappedDetections === 1 ? '' : 's'} have no ATT&CK mapping
+                  (no evidence-based technique for their type).
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

@@ -4,7 +4,9 @@ dataset, compares them on held-out test data, and saves the better-performing
 model (plus its feature order) to app/ml/ for the FastAPI service to load.
 """
 import json
+import os
 import time
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -17,21 +19,43 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
-# pyrefly: ignore [missing-import]
 from xgboost import XGBClassifier
 
-DATA_PATH = "data/Ransomware_Data.csv"
-MODEL_OUTPUT_PATH = "app/ml/model.pkl"
-METADATA_OUTPUT_PATH = "app/ml/model_metadata.json"
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent.parent
 
-LABEL_COLUMN = "Ware Type"
-POSITIVE_LABEL = "ransom"  # the value in LABEL_COLUMN that means "is ransomware"
+# Locate dataset: check local data/ first, then fallback to agent/dataset/RANSOMWARE.csv
+CANDIDATE_DATA_PATHS = [
+    BASE_DIR / "data" / "Ransomware_Data.csv",
+    BASE_DIR / "data" / "RANSOMWARE.csv",
+    ROOT_DIR / "agent" / "dataset" / "RANSOMWARE.csv",
+]
+
+DATA_PATH = None
+for p in CANDIDATE_DATA_PATHS:
+    if p.exists():
+        DATA_PATH = p
+        break
+
+if DATA_PATH is None:
+    raise FileNotFoundError(f"Could not find dataset in any of: {CANDIDATE_DATA_PATHS}")
+
+MODEL_OUTPUT_PATH = BASE_DIR / "app" / "ml" / "model.pkl"
+METADATA_OUTPUT_PATH = BASE_DIR / "app" / "ml" / "model_metadata.json"
 
 
 def load_data():
     df = pd.read_csv(DATA_PATH)
-    df["label"] = (df[LABEL_COLUMN] == POSITIVE_LABEL).astype(int)
-    feature_cols = [c for c in df.columns if c not in (LABEL_COLUMN, "label")]
+    if "Ware Type" in df.columns:
+        label_col = "Ware Type"
+        df["label"] = (df[label_col].astype(str).str.lower().str.contains("ransom")).astype(int)
+    elif "label" in df.columns:
+        label_col = "label"
+        df["label"] = (df[label_col].astype(str).str.lower().isin(["1", "ransomware", "ransom"])).astype(int)
+    else:
+        raise ValueError("Could not find label column ('Ware Type' or 'label') in dataset.")
+
+    feature_cols = [c for c in df.columns if c not in (label_col, "label")]
     return df[feature_cols], df["label"], feature_cols
 
 
@@ -40,7 +64,7 @@ def evaluate(name, model, X_test, y_test):
     proba = model.predict_proba(X_test)[:, 1]
 
     print(f"\n=== {name} ===")
-    print(classification_report(y_test, pred, target_names=["good", "ransom"]))
+    print(classification_report(y_test, pred, target_names=["good", "ransomware"]))
     auc = roc_auc_score(y_test, proba)
     print(f"ROC-AUC: {auc:.4f}")
     print("Confusion matrix:\n", confusion_matrix(y_test, pred))
@@ -52,7 +76,7 @@ def evaluate(name, model, X_test, y_test):
 
 
 def main():
-    print("Loading dataset...")
+    print(f"Loading dataset from: {DATA_PATH}...")
     X, y, feature_cols = load_data()
     print(f"Loaded {len(X)} rows, {len(feature_cols)} features")
     print(f"Class balance — ransomware: {y.mean():.2%}")
@@ -64,7 +88,7 @@ def main():
     # --- Random Forest ---
     t0 = time.time()
     rf = RandomForestClassifier(
-        n_estimators=200,
+        n_estimators=100,
         class_weight="balanced",
         n_jobs=-1,
         random_state=42,
@@ -74,14 +98,12 @@ def main():
     rf_scores = evaluate("Random Forest", rf, X_test, y_test)
 
     # --- XGBoost ---
-    # scale_pos_weight compensates for class imbalance (ransomware is the
-    # minority class), similar in spirit to class_weight="balanced" above.
-    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
+    scale_pos_weight = (y_train == 0).sum() / max(1, (y_train == 1).sum())
     t0 = time.time()
     xgb = XGBClassifier(
-        n_estimators=300,
+        n_estimators=200,
         max_depth=6,
-        learning_rate=0.1,
+        learning_rate=0.08,
         scale_pos_weight=scale_pos_weight,
         eval_metric="logloss",
         random_state=42,
@@ -101,6 +123,7 @@ def main():
     print(f"WINNER: {winner_name} (ROC-AUC: {winner_scores['roc_auc']:.4f})")
     print(f"{'=' * 50}")
 
+    os.makedirs(MODEL_OUTPUT_PATH.parent, exist_ok=True)
     joblib.dump(winner_model, MODEL_OUTPUT_PATH)
 
     metadata = {

@@ -8,6 +8,9 @@ import { EndpointStatusBadge, SeverityBadge, DetectionStatusBadge, ResourceBar, 
 import { ResponseTimeline } from '@/components/ResponseTimeline'
 import { apiGet } from '@/lib/api'
 import type { Endpoint } from '@/lib/types'
+import { presentDetectionText } from '@/lib/sanitizers'
+import { attackTypeLabel } from '@/lib/dosDetection'
+import { isPrivilegeEscalation, describePrivilegeEscalation } from '@/lib/alertSummary'
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -118,7 +121,7 @@ export default function EndpointDetailPage({ params }: { params: Promise<{ id: s
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Endpoint Metadata</h3>
           <dl className="space-y-3">
             {[
-              { label: 'Agent Version', value: `v${endpoint.agentVersion}` },
+              { label: 'Agent Version', value: endpoint.agentVersion ? `v${endpoint.agentVersion}` : 'Not reported' },
               { label: 'Last Check-In', value: fmt(endpoint.lastCheckInAt) },
               { label: 'Registered', value: fmt(endpoint.createdAt) },
               { label: 'Endpoint ID', value: endpoint._id },
@@ -191,9 +194,13 @@ export default function EndpointDetailPage({ params }: { params: Promise<{ id: s
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <SeverityBadge severity={det.severity} />
-                      <span className="text-xs text-slate-500">{det.indicators[0]?.type}</span>
+                      <span className="text-xs text-slate-500">
+                        {isPrivilegeEscalation(det) ? `Privilege Escalation · ${det.ruleId ?? ''}` : attackTypeLabel(det.attackType)}
+                      </span>
                     </div>
-                    <p className="text-sm text-slate-700 truncate">{det.indicators[0]?.description}</p>
+                    <p className="text-sm text-slate-700 truncate">
+                      {isPrivilegeEscalation(det) ? describePrivilegeEscalation(det) : presentDetectionText(det.indicators[0]?.description)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="text-2xl font-bold font-mono text-slate-800">{det.riskScore}</span>

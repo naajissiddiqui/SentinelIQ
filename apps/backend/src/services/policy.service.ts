@@ -5,6 +5,7 @@ import { isolateEndpoint } from "./endpoint.service";
 import { recordTimelineEvent } from "./timeline.service";
 import { emitToOrganization } from "../websocket/socket";
 import { DetectionModel } from "../models/detection.model";
+import { isActionAllowed, policyAppliesToDetection } from "./detectionProfile";
 
 export interface PolicyEvaluationContext {
   organizationId: string;
@@ -143,6 +144,11 @@ export async function evaluatePolicies(context: PolicyEvaluationContext): Promis
     if (policy.conditions.length === 0) {
       continue;
     }
+    // DoS/DDoS detections only match policies written explicitly for them, so a
+    // ransomware-oriented rule (e.g. riskScore >= 80 -> isolate) never fires on one.
+    if (context.detectionType && !policyAppliesToDetection(policy, context.detectionType)) {
+      continue;
+    }
 
     let policyMatched = false;
     if (policy.logicalOperator === "OR") {
@@ -158,6 +164,9 @@ export async function evaluatePolicies(context: PolicyEvaluationContext): Promis
 
     // 3. Execute Actions
     for (const action of policy.actions) {
+      if (!isActionAllowed(action.type, context.detectionType)) {
+        continue; // hard guard: e.g. no endpoint isolation for DoS/DDoS, whatever the policy says
+      }
       if (action.type === "ISOLATE_ENDPOINT") {
         // Execute safe isolation on target endpoint if not already isolated
         if (context.endpointStatus !== "ISOLATED" && context.endpointId) {

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+# Extraction outputs and captures never go in git (datasets are large and licensed).
+out/
+data/
+*.pcap
+*.pcapng
+
+# per-run logs written by scripts/replay-recorded-traffic.mjs
+ingest-runs/
+
+# synthetic DoS demo outputs (docs/DOS_DEMO.md)
+dos-demo/

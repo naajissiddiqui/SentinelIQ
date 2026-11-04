@@ -10,15 +10,48 @@ import {
 import { ResponseTimeline } from '@/components/ResponseTimeline'
 import { useApp } from '@/lib/context'
 import type { Detection } from '@/lib/types'
+import { presentDetectionText } from '@/lib/sanitizers'
+import { isPrivilegeEscalation, describePrivilegeEscalation, buildDetectionOverview, emptyIndicatorsMessage } from '@/lib/alertSummary'
+import { PrivilegeEscalationSummaryCard, PrivilegeEscalationTechnicalDetails } from '@/components/PrivilegeEscalationAlert'
+import { DosDetectionPanel } from '@/components/DosDetectionPanel'
+import {
+  ATTACK_TYPE_FILTERS, type AttackTypeFilter, attackTypeLabel, canGenerateCti, dataOriginBadge, dataOriginLabel,
+  displayEndpointName, isDosDetection, matchesAttackTypeFilter,
+  DATA_ORIGIN_FILTERS, type DataOriginFilter, matchesDataOriginFilter,
+} from '@/lib/dosDetection'
+import { detectionsToCsv, exportFileName } from '@/lib/detectionExport'
+import { SEVERITY_HEX, severityFromRiskScore } from '@/lib/severity'
+
+// Source filters for the incident list; test-record sources are not offered.
+const SOURCE_FILTERS = DATA_ORIGIN_FILTERS.filter(f => f !== 'Simulated telemetry' && f !== 'Demonstration records')
+
+/** Product name for the threat type shown on each row. */
+function threatName(d: Detection): string {
+  if (isPrivilegeEscalation(d)) return 'Privilege Escalation'
+  if (isDosDetection(d)) return 'Denial of Service'
+  const label = attackTypeLabel(d.attackType).toLowerCase()
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
 
 function DetectionsContent() {
-  const { detections, resolveDetection, generateCTI, showToast } = useApp()
+  const {
+    detections, resolveDetection, generateCTI, showToast,
+    detectionsLoading, detectionsError, refetchDetections, detectionsTotal, detectionsHasMore, loadMoreDetections,
+  } = useApp()
   const [selected, setSelected] = useState<Detection | null>(null)
   const [resolved, setResolved] = useState(false)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [isResolvingDrawer, setIsResolvingDrawer] = useState(false)
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState("All")
+  const [typeFilter, setTypeFilter] = useState<AttackTypeFilter>("All types")
+  const [originFilter, setOriginFilter] = useState<DataOriginFilter>("All sources")
+  // Privilege-escalation detections are not shown on this page.
+  const rows = detections.filter(d => !isPrivilegeEscalation(d))
+  const hiddenCount = detections.length - rows.length
+  const shownTotal = Math.max(0, detectionsTotal - hiddenCount)
+  const listLoading = detectionsLoading
+  const listError = detectionsError
 
   const open = (d: Detection) => { setSelected(d); setResolved(false); }
 
@@ -27,7 +60,7 @@ function DetectionsContent() {
     return sev === "CRITICAL" ? RED : sev === "HIGH" ? "#F97316" : sev === "MEDIUM" ? AMBER : GREEN
   }
 
-  const filtered = detections.filter(d => {
+  const filtered = rows.filter(d => {
     const matchesFilter =
       filter === "All" ||
       (filter === "Active" && (d.status === "NEW" || d.status === "INVESTIGATING")) ||
@@ -36,8 +69,25 @@ function DetectionsContent() {
       (d.endpointName || "").toLowerCase().includes(search.toLowerCase()) ||
       (d.status || "").toLowerCase().includes(search.toLowerCase()) ||
       (d.severity || "").toLowerCase().includes(search.toLowerCase())
-    return matchesFilter && matchesSearch
+    return matchesFilter && matchesSearch && matchesAttackTypeFilter(d, typeFilter) && matchesDataOriginFilter(d, originFilter)
   })
+  const filtersActive = filter !== "All" || search !== "" || typeFilter !== "All types" || originFilter !== "All sources"
+
+  // Exports exactly the rows on screen (the loaded, filtered records) - nothing invented.
+  const exportCsv = () => {
+    if (filtered.length === 0) {
+      showToast("Nothing to export: no detections match the current view", "info")
+      return
+    }
+    const blob = new Blob([detectionsToCsv(filtered)], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = exportFileName()
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast(`Exported ${filtered.length} detection${filtered.length === 1 ? "" : "s"} to CSV`, "success")
+  }
 
   const handleDirectResolve = async (detectionId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
@@ -84,10 +134,14 @@ function DetectionsContent() {
       <div className="flex items-start justify-between mb-5">
         <div>
           <h1 className="text-[24px] font-bold" style={{ color: TEXT }}>Detections</h1>
-          <p className="text-[14px]" style={{ color: MUTED }}>{detections.length} incidents recorded</p>
+          <p className="text-[14px]" style={{ color: MUTED }}>
+            {shownTotal} detection{shownTotal === 1 ? "" : "s"} recorded
+            {rows.length < shownTotal && ` · ${rows.length} loaded (filters and search apply to loaded records)`}
+          </p>
         </div>
         <button
-          onClick={() => showToast("Exported detections report", "info")}
+          onClick={exportCsv}
+          title="Download the detections currently shown as CSV"
           className="flex items-center gap-2 h-10 px-4 rounded-[10px] text-[13px] font-medium border transition-colors hover:bg-gray-50 cursor-pointer"
           style={{ borderColor: BORDER, color: TEXT }}
         >
@@ -121,7 +175,34 @@ function DetectionsContent() {
             {f}
           </button>
         ))}
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value as AttackTypeFilter)}
+          aria-label="Filter by attack type"
+          className="h-8 px-2 rounded-lg text-[12px] border bg-white cursor-pointer"
+          style={{ borderColor: BORDER, color: TEXT }}
+        >
+          {ATTACK_TYPE_FILTERS.filter(t => t !== 'Privilege escalation').map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select
+          value={originFilter}
+          onChange={e => setOriginFilter(e.target.value as DataOriginFilter)}
+          aria-label="Filter by data source"
+          className="h-8 px-2 rounded-lg text-[12px] border bg-white cursor-pointer"
+          style={{ borderColor: BORDER, color: TEXT }}
+        >
+          {SOURCE_FILTERS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
       </div>
+
+      {listError && (
+        <div role="alert" className="flex items-center justify-between gap-3 mb-4 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-[13px] text-red-800">
+          <span>Could not load detections from the server: {listError}</span>
+          <button onClick={() => refetchDetections()} className="px-3 h-8 rounded-lg border border-red-300 bg-white font-medium cursor-pointer">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white border rounded-[10px] shadow-sm overflow-hidden" style={{ borderColor: BORDER }}>
@@ -138,8 +219,18 @@ function DetectionsContent() {
               <tr>
                 <td colSpan={6} className="px-5 py-12 text-center text-[12px]" style={{ color: MUTED }}>
                   <div className="flex flex-col items-center gap-2">
-                    <ShieldCheck className="w-6 h-6 text-green-600" />
-                    <span>No detections found. Endpoints are clean and operating normally.</span>
+                    {listLoading ? (
+                      <span>Loading detections…</span>
+                    ) : listError ? (
+                      <span>Detections are unavailable until the server responds.</span>
+                    ) : filtersActive && detections.length > 0 ? (
+                      <span>No loaded detections match the current filters.</span>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-6 h-6 text-slate-400" />
+                        <span>No detections have been recorded for this organization.</span>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -168,8 +259,14 @@ function DetectionsContent() {
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <Monitor className="w-3.5 h-3.5 flex-shrink-0" style={{ color: MUTED }} />
-                          <span className="text-[13px] font-medium" style={{ color: TEXT }}>{d.endpointName || "Unknown Endpoint"}</span>
+                          <span className="text-[13px] font-medium" style={{ color: TEXT }}>{displayEndpointName(d)}</span>
                         </div>
+                        {(isDosDetection(d) || isPrivilegeEscalation(d)) && (
+                          <span className="flex flex-wrap items-center gap-1 text-[11px]" style={{ color: MUTED }}>
+                            {isDosDetection(d) && <span>{threatName(d)}</span>}
+                            {isPrivilegeEscalation(d) && <span>{threatName(d)} · {describePrivilegeEscalation(d)}</span>}
+                          </span>
+                        )}
                         <div className="flex flex-wrap gap-1">
                           {d.ctiMatch?.matched && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-200">
@@ -218,6 +315,19 @@ function DetectionsContent() {
         </table>
       </div>
 
+      {detectionsHasMore && (
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={() => { loadMoreDetections() }}
+            disabled={detectionsLoading}
+            className="px-4 h-9 rounded-lg text-[13px] font-medium border bg-white cursor-pointer disabled:opacity-50"
+            style={{ borderColor: BORDER, color: TEXT }}
+          >
+            {detectionsLoading ? "Loading…" : `Load more (${rows.length} of ${shownTotal} loaded)`}
+          </button>
+        </div>
+      )}
+
       {/* Detection Detail Drawer */}
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -234,14 +344,16 @@ function DetectionsContent() {
             <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: BORDER }}>
               <div className="flex items-center gap-4">
                 <div>
-                  <h2 className="text-[16px] font-bold" style={{ color: TEXT }}>{selected.endpointName || "Endpoint"}</h2>
+                  <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED }}>{threatName(selected)}</p>
+                  <h2 className="text-[16px] font-bold" style={{ color: TEXT }}>{displayEndpointName(selected)}</h2>
                   <p className="text-[11px] mt-0.5" style={{ color: MUTED, fontFamily: "var(--font-mono, monospace)" }}>
-                    {selected.detectedAt ? new Date(selected.detectedAt).toLocaleString() : 'Recent'}
+                    {selected.detectedAt ? new Date(selected.detectedAt).toLocaleString() : 'Time not recorded'}
                   </p>
                 </div>
                 <div
+                  title="Risk score: a 0-100 severity, not a probability"
                   className="w-12 h-12 rounded-full flex items-center justify-center text-white text-[15px] font-bold"
-                  style={{ backgroundColor: (selected.riskScore ?? 0) > 75 ? RED : AMBER }}
+                  style={{ backgroundColor: SEVERITY_HEX[severityFromRiskScore(selected.riskScore ?? 0)] }}
                 >
                   {selected.riskScore ?? 0}
                 </div>
@@ -253,13 +365,18 @@ function DetectionsContent() {
 
             <div className="p-6 flex flex-col gap-6 flex-1">
               {/* Summary */}
+              {isDosDetection(selected) ? (
+                <DosDetectionPanel detection={selected} />
+              ) : isPrivilegeEscalation(selected) ? (
+                <PrivilegeEscalationSummaryCard detection={selected} />
+              ) : (
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide mb-3" style={{ color: MUTED }}>Detection Overview</p>
                 <div className="p-4 rounded-[10px] text-[13px] leading-relaxed" style={{ backgroundColor: BG, color: TEXT }}>
-                  A {selected.severity?.toLowerCase() || 'medium'}-severity ransomware indicator burst was detected on {selected.endpointName}.
-                  Risk score calculated by XGBoost feature extraction engine: {selected.riskScore}/100.
+                  {buildDetectionOverview(selected)}
                 </div>
               </div>
+              )}
 
               {/* Threat Intelligence (CTI) Correlation Card */}
               <div>
@@ -299,9 +416,9 @@ function DetectionsContent() {
                   <div className="p-3 rounded-lg border flex items-center justify-between text-xs text-slate-600" style={{ borderColor: BORDER, backgroundColor: BG }}>
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>No malicious CTI match (Indicators clean or unlisted)</span>
+                      <span>No match among the configured threat-intelligence indicators</span>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">CLEAN</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">NO MATCH</span>
                   </div>
                 )}
               </div>
@@ -336,14 +453,22 @@ function DetectionsContent() {
                     Severity: <strong style={{ color: sevColor(selected.severity) }}>{selected.severity}</strong>
                   </span>
                 </div>
+                <p className="text-[12px] mt-2" style={{ color: MUTED }}
+                  title={dataOriginBadge(selected.dataOrigin).description}>
+                  Data source: <span className="font-medium" style={{ color: TEXT }}>{dataOriginLabel(selected)}</span>
+                </p>
               </div>
 
-              {/* Behaviour indicators */}
+              {/* Behaviour indicators (privilege escalation: technical details collapsed) */}
+              {isPrivilegeEscalation(selected) ? (
+                <PrivilegeEscalationTechnicalDetails detection={selected} />
+              ) : (
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide mb-3" style={{ color: MUTED }}>Observed Indicators</p>
                 {selected.indicators && selected.indicators.length > 0 ? (
                   selected.indicators.map((ind: any, i: number) => {
-                    const text = typeof ind === 'string' ? ind : (ind.description || ind.type || JSON.stringify(ind))
+                    const rawText = typeof ind === 'string' ? ind : (ind.description || ind.type || JSON.stringify(ind))
+                    const text = presentDetectionText(rawText)
                     return (
                       <div key={i} className="flex items-start gap-3 py-2.5 border-b" style={{ borderColor: BORDER }}>
                         <Activity className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: STORM }} />
@@ -352,9 +477,10 @@ function DetectionsContent() {
                     )
                   })
                 ) : (
-                  <p className="text-[12px]" style={{ color: MUTED }}>Simulated telemetry pattern matched local XGBoost model thresholds.</p>
+                  <p className="text-[12px]" style={{ color: MUTED }}>{emptyIndicatorsMessage(selected)}</p>
                 )}
               </div>
+              )}
 
               {/* Response Action Timeline */}
               <div className="pt-2 border-t" style={{ borderColor: BORDER }}>
@@ -380,13 +506,16 @@ function DetectionsContent() {
                     <CheckCircle2 className="w-4 h-4" />
                     {isResolvingDrawer ? 'Resolving...' : 'Resolve Detection'}
                   </button>
+                  {canGenerateCti(selected) && (
                   <button
                     onClick={handleGenerateCTI}
-                    className="h-9 px-4 rounded-lg text-[13px] font-semibold text-white cursor-pointer"
+                    title="Generate a structured CTI draft from this detection"
+                    className="h-9 px-4 rounded-lg text-[13px] font-semibold text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ backgroundColor: P }}
                   >
                     Generate CTI Report
                   </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -394,13 +523,16 @@ function DetectionsContent() {
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>Detection {selected.status === 'FALSE_POSITIVE' ? 'Marked False Positive' : 'Resolved'}</span>
                   </div>
+                  {canGenerateCti(selected) && (
                   <button
                     onClick={handleGenerateCTI}
-                    className="ml-auto h-9 px-4 rounded-lg text-[13px] font-semibold text-white cursor-pointer"
+                    title="Generate a structured CTI draft from this detection"
+                    className="ml-auto h-9 px-4 rounded-lg text-[13px] font-semibold text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ backgroundColor: P }}
                   >
                     Generate CTI Report
                   </button>
+                  )}
                 </>
               )}
             </div>

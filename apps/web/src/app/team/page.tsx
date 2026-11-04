@@ -109,6 +109,8 @@ export default function TeamPage() {
     setToggling(true)
     try {
       await toggleUserActive(toggleTarget, user.isActive)
+    } catch {
+      // the provider has already shown the server's error; nothing changed
     } finally {
       setToggling(false)
       setToggleTarget(null)
@@ -186,7 +188,7 @@ export default function TeamPage() {
                       {isAdmin && u._id !== currentUser?.id ? (
                         <select
                           value={u.role}
-                          onChange={e => changeUserRole(u._id, e.target.value as UserRole)}
+                          onChange={e => changeUserRole(u._id, e.target.value as UserRole).catch(() => { /* error already shown */ })}
                           className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-navy-600/30 cursor-pointer"
                         >
                           <option value="SECURITY_ANALYST">Analyst</option>
@@ -237,8 +239,8 @@ export default function TeamPage() {
         title={user?.isActive ? 'Deactivate User' : 'Reactivate User'}
         message={
           user?.isActive
-            ? `${user?.name} will lose access to RansomShield immediately. Their account data will be retained.`
-            : `${user?.name} will regain access to RansomShield.`
+            ? `${user?.name} will lose access to SentinelIQ immediately. Their account data will be retained.`
+            : `${user?.name} will regain access to SentinelIQ.`
         }
         confirmLabel={user?.isActive ? 'Deactivate' : 'Reactivate'}
         danger={user?.isActive}

@@ -5,8 +5,10 @@ import {
   loginUser,
   rotateRefreshToken,
   logoutUser,
+  changePassword,
 } from "../services/auth.service";
 import { AppError } from "../middleware/error.middleware";
+import { AuthenticatedRequest } from "../middleware/auth.middleware";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 const REFRESH_COOKIE_OPTIONS = {
@@ -118,4 +120,9 @@ export async function logout(req: Request, res: Response) {
   }
   res.clearCookie(REFRESH_COOKIE_NAME, { path: "/api/auth" });
   res.status(200).json({ message: "Logged out successfully" });
+}
+export async function changeOwnPassword(req: AuthenticatedRequest, res: Response) {
+  const { currentPassword, newPassword } = req.body || {};
+  await changePassword(req.user!.userId, String(currentPassword ?? ""), String(newPassword ?? ""), req.cookies?.[REFRESH_COOKIE_NAME]);
+  res.status(200).json({ message: "Password changed. Other sessions have been signed out." });
 }

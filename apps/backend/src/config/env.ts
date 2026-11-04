@@ -24,6 +24,11 @@ export const env = {
   blockchain: {
     rpcUrl: requireEnv("POLYGON_AMOY_RPC_URL"),
     privateKey: requireEnv("BLOCKCHAIN_PRIVATE_KEY"),
-    contractAddress: requireEnv("CTI_REGISTRY_CONTRACT_ADDRESS"),
+    contractAddress: requireEnv("CTI_REGISTRY_CONTRACT_ADDRESS").trim(),
+    // Block the registry was deployed in; bounds event-log searches.
+    deployBlock: process.env.CTI_REGISTRY_DEPLOY_BLOCK
+      ? parseInt(process.env.CTI_REGISTRY_DEPLOY_BLOCK, 10)
+      : null,
+    receiptTimeoutMs: parseInt(process.env.BLOCKCHAIN_RECEIPT_TIMEOUT_MS || "90000", 10),
   },
 };

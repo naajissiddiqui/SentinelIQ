@@ -2,6 +2,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
+import pywintypes
 import win32evtlog
 
 
@@ -169,11 +170,25 @@ class SysmonReader:
             list[dict]
         """
 
-        handle = win32evtlog.EvtQuery(
-            self.log_name,
-            win32evtlog.EvtQueryReverseDirection,
-            "*"
-        )
+        try:
+            handle = win32evtlog.EvtQuery(
+                self.log_name,
+                win32evtlog.EvtQueryReverseDirection,
+                "*"
+            )
+        except pywintypes.error as e:
+            # 15007: the channel does not exist; 5: access denied. Both are setup problems.
+            if e.winerror == 15007:
+                raise SystemExit(
+                    f"[SysmonReader] The event log '{self.log_name}' does not exist: Sysmon is not installed.\n"
+                    "  Install it from an Administrator PowerShell:\n"
+                    "    C:\\Sysmon\\Sysmon64.exe -accepteula -i C:\\SentinelIQ\\agent\\sysmon\\sysmonconfig-sentineliq.xml"
+                ) from None
+            if e.winerror == 5:
+                raise SystemExit(
+                    f"[SysmonReader] Access to '{self.log_name}' was denied. Run the agent from an Administrator PowerShell."
+                ) from None
+            raise
 
         try:
             events = win32evtlog.EvtNext(

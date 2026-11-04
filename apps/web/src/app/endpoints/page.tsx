@@ -10,6 +10,8 @@ import {
 import { ResponseTimeline } from '@/components/ResponseTimeline'
 import { useApp } from '@/lib/context'
 import type { Endpoint } from '@/lib/types'
+import { presentDetectionText } from '@/lib/sanitizers'
+import { isPrivilegeEscalation, describePrivilegeEscalation } from '@/lib/alertSummary'
 
 function EndpointsContent() {
   const { endpoints, addEndpoint, removeEndpoint, isolateEndpoint, unisolateEndpoint, resolveDetection, detections, cascades, policies, showToast } = useApp()
@@ -205,7 +207,7 @@ function EndpointsContent() {
                     </td>
                     <td className="px-5 py-3.5"><StatusBadge status={displayStatus} /></td>
                     <td className="px-5 py-3.5 text-[13px]" style={{ color: MUTED }}>{formatLastSeen(ep.lastCheckInAt)}</td>
-                    <td className="px-5 py-3.5 text-[13px]" style={{ color: MUTED }}>{ep.osVersion || "Windows 11"}</td>
+                    <td className="px-5 py-3.5 text-[13px]" style={{ color: MUTED }}>{ep.osVersion || "Not reported"}</td>
                     <td className="px-5 py-3.5 text-right">
                       <button
                         className="p-1.5 rounded hover:bg-gray-100 transition-colors cursor-pointer"
@@ -242,7 +244,7 @@ function EndpointsContent() {
                     }
                   />
                 </div>
-                <p className="text-[12px]" style={{ color: MUTED }}>Last seen {formatLastSeen(selected.lastCheckInAt)} · {selected.osVersion || "Windows"}</p>
+                <p className="text-[12px]" style={{ color: MUTED }}>Last seen {formatLastSeen(selected.lastCheckInAt)} · {selected.osVersion || "OS not reported"}</p>
               </div>
               <button onClick={() => setSelectedId(null)} className="p-1.5 rounded hover:bg-gray-100 mt-0.5 cursor-pointer">
                 <X className="w-4 h-4" style={{ color: MUTED }} />
@@ -278,21 +280,25 @@ function EndpointsContent() {
 
               {/* Specs */}
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide mb-3" style={{ color: MUTED }}>Live Telemetry & Resource Stats</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide mb-3" style={{ color: MUTED }}>Resource Usage (last heartbeat)</p>
                 {[
-                  { label: "CPU Usage", val: selected.cpuUsagePercent ?? 0 },
-                  { label: "RAM Usage", val: selected.ramUsagePercent ?? 0 },
-                  { label: "Disk Usage", val: selected.diskUsagePercent ?? 0 },
+                  { label: "CPU Usage", val: selected.cpuUsagePercent },
+                  { label: "RAM Usage", val: selected.ramUsagePercent },
+                  { label: "Disk Usage", val: selected.diskUsagePercent },
                 ].map(s => (
                   <div key={s.label} className="flex items-center gap-3 mb-2.5">
                     <span className="text-[12px] w-20" style={{ color: MUTED }}>{s.label}</span>
                     <div className="flex-1 h-1.5 rounded-full" style={{ backgroundColor: BORDER }}>
-                      <div
-                        className="h-1.5 rounded-full transition-all"
-                        style={{ width: `${Math.min(100, Math.max(0, s.val))}%`, backgroundColor: s.val > 80 ? RED : STORM }}
-                      />
+                      {s.val != null && (
+                        <div
+                          className="h-1.5 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, Math.max(0, s.val))}%`, backgroundColor: s.val > 80 ? RED : STORM }}
+                        />
+                      )}
                     </div>
-                    <span className="text-[12px] font-semibold w-7 text-right" style={{ color: TEXT }}>{s.val}%</span>
+                    <span className="text-[12px] font-semibold w-20 text-right" style={{ color: s.val != null ? TEXT : MUTED }}>
+                      {s.val != null ? `${s.val}%` : 'Not reported'}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -301,7 +307,7 @@ function EndpointsContent() {
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide mb-3" style={{ color: MUTED }}>Detection History</p>
                 {detections.filter(d => d.endpointId === selected._id || d.endpointName === selected.name).length === 0 ? (
-                  <p className="text-[12px]" style={{ color: MUTED }}>No detections for this endpoint. Host is clean.</p>
+                  <p className="text-[12px]" style={{ color: MUTED }}>No detections have been recorded for this endpoint.</p>
                 ) : (
                   detections
                     .filter(d => d.endpointId === selected._id || d.endpointName === selected.name)
@@ -311,11 +317,13 @@ function EndpointsContent() {
                         <div key={d._id} className="flex items-center justify-between py-2.5 border-b" style={{ borderColor: BORDER }}>
                           <div>
                             <span className="text-[11px] block" style={{ color: MUTED, fontFamily: "var(--font-mono, monospace)" }}>
-                              {d.detectedAt ? new Date(d.detectedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Recent'}
+                              {d.detectedAt ? new Date(d.detectedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Time not recorded'}
                             </span>
                             {d.indicators && d.indicators[0] && (
                               <span className="text-[12px] font-medium block truncate max-w-[200px]" style={{ color: TEXT }}>
-                                {typeof d.indicators[0] === 'string' ? d.indicators[0] : (d.indicators[0].description || d.indicators[0].type)}
+                                {isPrivilegeEscalation(d)
+                                  ? describePrivilegeEscalation(d)
+                                  : presentDetectionText(typeof d.indicators[0] === 'string' ? d.indicators[0] : (d.indicators[0].description || d.indicators[0].type))}
                               </span>
                             )}
                           </div>
@@ -379,7 +387,8 @@ function EndpointsContent() {
                 <button
                   onClick={() => {
                     removeEndpoint(selected._id)
-                    setSelectedId(null)
+                      .then(() => setSelectedId(null))
+                      .catch(() => { /* error already shown; the endpoint was not removed */ })
                   }}
                   className="px-4 h-10 rounded-lg text-[13px] font-medium border transition-colors hover:bg-red-50 cursor-pointer"
                   style={{ borderColor: RED, color: RED }}

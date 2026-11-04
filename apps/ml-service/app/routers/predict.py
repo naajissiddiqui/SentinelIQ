@@ -5,9 +5,6 @@ import pandas as pd
 
 router = APIRouter()
 
-# Threshold above which a prediction is flagged as ransomware. 0.5 is the
-# standard default; can be tuned lower later to further favor recall
-# (catching more true ransomware at the cost of more false alarms).
 RISK_THRESHOLD = 0.5
 
 
@@ -15,11 +12,8 @@ RISK_THRESHOLD = 0.5
 def predict(request: PredictionRequest):
     model, metadata = get_model()
 
-    # Build a single-row DataFrame in the exact column order the model
-    # was trained on — order matters for tree-based models' internal
-    # feature indexing.
     feature_dict = request.features.model_dump(by_alias=True)
-    row = pd.DataFrame([[feature_dict[col] for col in metadata["feature_order"]]],
+    row = pd.DataFrame([[feature_dict.get(col, 0.0) for col in metadata["feature_order"]]],
                        columns=metadata["feature_order"])
 
     probability = model.predict_proba(row)[0][1]

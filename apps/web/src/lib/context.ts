@@ -14,6 +14,8 @@ import type {
   Cascade,
   ThreatIntelIOC,
   CTIMatchResult,
+  CTIVerificationResult,
+  DetectionSummary,
 } from './types'
 
 export interface AppContextType {
@@ -42,6 +44,15 @@ export interface AppContextType {
   detectionsLoading: boolean
   detectionsError: string | null
   refetchDetections: () => void
+  /** Detections matching the server query (all of them), not just the loaded page. */
+  detectionsTotal: number
+  detectionsHasMore: boolean
+  loadMoreDetections: () => Promise<void>
+  /** Organisation-wide counts computed by the server (GET /detections/summary). */
+  detectionSummary: DetectionSummary | null
+  detectionSummaryLoading: boolean
+  detectionSummaryError: string | null
+  refetchDetectionSummary: () => void
 
   ctiReports: CTIReport[]
   ctiLoading: boolean
@@ -66,6 +77,7 @@ export interface AppContextType {
   globalFeed: CTIReport[]
   feedLoading: boolean
   feedError: string | null
+  refetchFeed: () => void
 
   // Policies
   policies: Policy[]
@@ -103,8 +115,11 @@ export interface AppContextType {
   resolveDetection: (id: string, outcome?: 'RESOLVED' | 'FALSE_POSITIVE') => Promise<void>
   generateCTI: (detectionId: string) => Promise<CTIReport>
   updateCTIDraft: (id: string, data: Partial<Pick<CTIReport, 'attackSummary' | 'analystNotes' | 'indicatorsOfCompromise' | 'recommendedActions'>>) => Promise<void>
-  publishCTI: (id: string) => Promise<void>
+  publishCTI: (id: string) => Promise<CTIReport>
+  verifyCTI: (id: string) => Promise<CTIVerificationResult>
   discardCTI: (id: string) => Promise<void>
+  shareReport: (id: string, visibility: 'PRIVATE' | 'SHARED_SELECTED' | 'SHARED_ALL', sharedWithOrgIds?: string[]) => Promise<CTIReport>
+  fetchShareTargets: () => Promise<{ id: string; name: string }[]>
   inviteUser: (data: { name: string; email: string; temporaryPassword: string; role: UserRole }) => Promise<void>
   generateInvitation: () => Promise<Invitation>
   changeUserRole: (id: string, role: UserRole) => Promise<void>

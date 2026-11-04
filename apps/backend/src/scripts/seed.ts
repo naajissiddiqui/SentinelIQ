@@ -16,6 +16,7 @@ import { AuditLogModel } from "../models/auditLog.model";
 import { SessionModel } from "../models/session.model";
 import { hashPassword } from "../utils/password";
 import { hashActivationToken } from "../utils/activationToken";
+import { computeReportHash } from "../utils/canonical";
 
 const CONFIRM_FLAG = "--confirm";
 
@@ -120,30 +121,61 @@ async function seedCTIReport(
   createdByUserId: mongoose.Types.ObjectId,
   published: boolean
 ) {
+  const reportId = `cti-${detectionId.toString().slice(-6)}-${Date.now().toString(36)}`;
+  const attackSummary =
+    "Ransomware-pattern behaviour detected: rapid file renaming with high-entropy filenames, consistent with encryption-based ransomware.";
+  const indicatorsOfCompromise = [
+    "MASS_FILE_RENAME: Bulk file rename with .locked extension",
+    "SUSPICIOUS_PROCESS: Unknown process spawned from document editor",
+  ];
+  const recommendedActions = [
+    "Disconnect affected endpoint's shared drives to prevent lateral encryption.",
+    "Isolate the affected endpoint from the network immediately.",
+    "Rotate credentials for any accounts active on the affected machine.",
+    "Review backup integrity before restoring any files.",
+  ];
+
+  const draftObj = {
+    reportId,
+    schemaVersion: "v1.0",
+    attackType: "RANSOMWARE",
+    title: "Ransomware Incident Report",
+    detectedAt: new Date().toISOString(),
+    severity: "CRITICAL",
+    riskScore: 90,
+    confidenceTier: "confirmed",
+    attackSummary,
+    indicatorsOfCompromise,
+    recommendedActions,
+    detector: { type: "rule", id: "RANSOMWARE-XGB", version: "1.0.0" },
+    evidence: [],
+    mitre: [],
+    version: 1,
+  };
+
+  const { canonicalJson, contentHash } = computeReportHash(draftObj);
+
   const report = await CTIReportModel.create({
+    reportId,
+    schemaVersion: "v1.0",
     organizationId,
     detectionId,
-    attackSummary:
-      "Ransomware-pattern behaviour detected: rapid file renaming with high-entropy filenames, consistent with encryption-based ransomware.",
-    indicatorsOfCompromise: [
-      "MASS_FILE_RENAME: Bulk file rename with .locked extension",
-      "SUSPICIOUS_PROCESS: Unknown process spawned from document editor",
-    ],
-    recommendedActions: [
-      "Disconnect affected endpoint's shared drives to prevent lateral encryption.",
-      "Isolate the affected endpoint from the network immediately.",
-      "Rotate credentials for any accounts active on the affected machine.",
-      "Review backup integrity before restoring any files.",
-    ],
+    attackType: "RANSOMWARE",
+    title: "Ransomware Incident Report",
+    attackSummary,
+    indicatorsOfCompromise,
+    recommendedActions,
     analystNotes: published ? "Confirmed with IT team; phishing email was the entry vector." : undefined,
-    status: published ? "PUBLISHED" : "DRAFT",
+    // Seeded reports are never marked PUBLISHED: only a confirmed CTIRegistry
+    // transaction may do that. "published" seeds are ready for approval.
+    status: published ? "PENDING_APPROVAL" : "DRAFT",
     createdByUserId,
-    transactionHash: published
-      ? "0x" + require("crypto").createHash("sha256").update(detectionId.toString()).digest("hex")
-      : undefined,
-    blockNumber: published ? Math.floor(40000000 + Math.random() * 3000000) : undefined,
-    verificationStatus: published ? "VERIFIED" : undefined,
-    publishedAt: published ? new Date() : undefined,
+    // Real transactionHash only exists when actually submitted to blockchain
+    transactionHash: undefined,
+    blockNumber: undefined,
+    contentHash,
+    canonicalJson,
+    verificationStatus: published ? "UNANCHORED" : undefined,
   });
 
   return report;

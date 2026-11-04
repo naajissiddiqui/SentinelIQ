@@ -36,6 +36,12 @@ function SkeletonRow() {
   )
 }
 
+/** Audit action codes (e.g. CTI_DRAFT_GENERATED) as readable labels; the code stays in the tooltip. */
+function actionLabel(action: string): string {
+  const words = action.replace(/_/g, ' ').toLowerCase().replace(/\bcti\b/g, 'CTI')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 export default function AuditLogsPage() {
   const { auditLogs, currentUser, auditLogsLoading, auditLogsError, refetchAuditLogs } = useApp()
   const [filterAction, setFilterAction] = useState('')
@@ -85,7 +91,7 @@ export default function AuditLogsPage() {
           </div>
           <Select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="w-48 text-xs">
             <option value="">All Actions</option>
-            {uniqueActions.map(a => <option key={a} value={a}>{a}</option>)}
+            {uniqueActions.map(a => <option key={a} value={a}>{actionLabel(a)}</option>)}
           </Select>
           <Select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="w-52 text-xs">
             <option value="">All Users</option>
@@ -151,7 +157,7 @@ export default function AuditLogsPage() {
                       <span className="text-xs font-mono text-slate-700">{log.userEmail}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-xs font-mono text-slate-800 font-medium">{log.action}</span>
+                      <span className="text-xs text-slate-800 font-medium" title={log.action}>{actionLabel(log.action)}</span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <div className="flex items-center gap-2">

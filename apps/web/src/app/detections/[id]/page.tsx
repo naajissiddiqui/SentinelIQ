@@ -2,12 +2,41 @@
 
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Clock, Globe, CheckCircle2, XCircle, Loader2, AlertCircle, Database, Radio, ShieldCheck } from 'lucide-react'
+import { ChevronLeft, Clock, Globe, CheckCircle2, XCircle, Loader2, AlertCircle, Database, Radio, ShieldCheck, ExternalLink } from 'lucide-react'
 import { useApp } from '@/lib/context'
 import { SeverityBadge, DetectionStatusBadge, Button, ConfirmModal, Card } from '@/components/ui'
 import { ResponseTimeline } from '@/components/ResponseTimeline'
 import { apiGet } from '@/lib/api'
 import type { Detection } from '@/lib/types'
+import { presentDetectionText } from '@/lib/sanitizers'
+import { isPrivilegeEscalation } from '@/lib/alertSummary'
+import { PrivilegeEscalationSummaryCard, PrivilegeEscalationTechnicalDetails } from '@/components/PrivilegeEscalationAlert'
+import { DosDetectionPanel } from '@/components/DosDetectionPanel'
+import { SEVERITY_TEXT_CLASS, severityFromRiskScore, RISK_SCORE_HELP } from '@/lib/severity'
+import { isTestRecord } from '@/lib/demoData'
+import { attackTypeBadgeClass, attackTypeLabel, canGenerateCti, dataOriginBadge, detectorStatusBadge, isDosDetection } from '@/lib/dosDetection'
+
+// Evidence records cited by an ATT&CK mapping, by their product names.
+const EVIDENCE_LABELS: Record<string, string> = {
+  'dos-window': 'traffic window',
+  'dos-prediction': 'detector result',
+  'dos-traffic': 'traffic summary',
+  'pcap-provenance': 'capture provenance',
+}
+/** Rule ids produced by a trained model rather than a written rule. */
+function isModelRule(ruleId: string): boolean {
+  return /-XGB$/i.test(ruleId)
+}
+
+/** Product names for the component that recorded a piece of evidence. */
+function evidenceSource(source?: string): string {
+  const names: Record<string, string> = { xgboost_model: 'ML CLASSIFIER', ml_classifier: 'ML CLASSIFIER', sysmon: 'SYSMON' }
+  return names[(source || '').toLowerCase()] ?? (source || 'UNKNOWN SOURCE').replace(/_/g, ' ').toUpperCase()
+}
+
+function evidenceLabel(id: string): string {
+  return EVIDENCE_LABELS[id] ?? id
+}
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString('en-US', {
@@ -112,9 +141,12 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
     )
   }
 
+  const isPE = isPrivilegeEscalation(detection)
+  const isDos = isDosDetection(detection)
+  const origin = dataOriginBadge(detection.dataOrigin)
   const existingCTI = ctiReports.find(r => r.detectionId === detection._id)
   const isActive = detection.status === 'NEW' || detection.status === 'INVESTIGATING'
-  const riskColor = detection.riskScore >= 85 ? 'text-red-600' : detection.riskScore >= 65 ? 'text-orange-500' : detection.riskScore >= 40 ? 'text-yellow-600' : 'text-slate-600'
+  const riskColor = SEVERITY_TEXT_CLASS[severityFromRiskScore(detection.riskScore)]
 
   const handleResolve = async () => {
     if (!confirmResolve) return
@@ -156,18 +188,73 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span
+              className={`text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded border ${attackTypeBadgeClass(detection.attackType)}`}
+            >
+              {attackTypeLabel(detection.attackType)}
+            </span>
+
+            {detection.dataOrigin && (
+              <span title={origin.description} className={`text-xs font-bold px-2 py-0.5 rounded border ${origin.className}`}>
+                {origin.label}
+              </span>
+            )}
+
+            {isDos && (
+              <span title={detectorStatusBadge(detection.detectorStatus).description}
+                className={`text-xs font-bold px-2 py-0.5 rounded border ${detectorStatusBadge(detection.detectorStatus).className}`}>
+                {detectorStatusBadge(detection.detectorStatus).label}
+              </span>
+            )}
+
+            {/* Network DoS rule ids name the model; they stay in the evidence panel's model information. */}
+            {/* Machine-learning rule ids (e.g. RANSOMWARE-XGB) name the algorithm; only rule-based ids are shown. */}
+            {detection.ruleId && !isDos && !isModelRule(detection.ruleId) && (
+              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                Rule: {detection.ruleId}
+              </span>
+            )}
+
+            {detection.confidenceTier && (
+              <span
+                className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                  detection.confidenceTier === 'confirmed'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : detection.confidenceTier === 'likely'
+                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}
+              >
+                {detection.confidenceTier.toUpperCase()} CONFIDENCE
+              </span>
+            )}
+
             <SeverityBadge severity={detection.severity} />
             <DetectionStatusBadge status={detection.status} />
           </div>
           <h2 className="text-xl font-bold text-navy-900 font-mono mt-1">{detection.endpointName}</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Detected {fmt(detection.detectedAt)}</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {detection.dataOrigin === 'PCAP_REPLAY' ? 'Traffic captured' : 'Detected'} {fmt(detection.detectedAt)}
+            {detection.dataOrigin === 'PCAP_REPLAY' && ' · analysed from a recording'}
+          </p>
         </div>
         <div className="text-center">
-          <p className={`text-5xl font-bold font-mono ${riskColor}`}>{detection.riskScore}</p>
+          <p className={`text-5xl font-bold font-mono ${riskColor}`} title={RISK_SCORE_HELP}>{detection.riskScore}</p>
           <p className="text-xs text-slate-500 mt-1">Risk Score</p>
         </div>
       </div>
+
+      {/* Plain-language summary + collapsed technical details for privilege escalation */}
+      {isPE && (
+        <>
+          <PrivilegeEscalationSummaryCard detection={detection} />
+          <PrivilegeEscalationTechnicalDetails detection={detection} />
+        </>
+      )}
+
+      {/* DoS/DDoS: detector, data origin, window evidence (replaces the generic evidence list) */}
+      {isDos && <DosDetectionPanel detection={detection} />}
 
       {/* CTI Threat Intelligence Correlation */}
       <Card className="p-5">
@@ -182,7 +269,7 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
             </span>
           ) : (
             <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-              <ShieldCheck size={14} /> Clean / No Threat Match
+              <ShieldCheck size={14} /> No threat-intelligence match
             </span>
           )}
         </div>
@@ -219,7 +306,7 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
           </div>
         ) : (
           <p className="text-xs text-slate-500">
-            Automated indicator extraction queried active Threat Intelligence feeds. No known malicious signatures or IOCs were matched.
+            The detection&apos;s indicators were checked against the configured threat-intelligence indicators; none matched.
           </p>
         )}
       </Card>
@@ -247,7 +334,101 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
         </Card>
       )}
 
-      {/* Indicators */}
+      {/* MITRE ATT&CK Enterprise Mapping (PE: shown inside View Details) */}
+      {!isPE && detection.mitre && detection.mitre.length > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-navy-900 flex items-center gap-2">
+              <Globe size={16} className="text-blue-600" />
+              MITRE ATT&CK Enterprise Mapping
+            </h3>
+            <span className="text-xs font-mono text-slate-400">Version: {detection.mitre[0]?.attackVersion || 'v14.1'}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {detection.mitre.map((m, idx) => (
+              <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-xs text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                      {m.techniqueId}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-900">{m.techniqueName}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Tactic: <strong className="text-slate-700">{m.tacticName}</strong> ({m.tacticId})
+                  </p>
+                  {m.mappingReason ? (
+                    <p className="text-[11px] text-slate-600">Why: {m.mappingReason}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400">Why: not recorded (detection created before mapping reasons were stored).</p>
+                  )}
+                  {m.evidenceRef && m.evidenceRef.length > 0 && (
+                    <p className="text-[11px] text-slate-400">Supporting evidence: {m.evidenceRef.map(evidenceLabel).join(', ')}</p>
+                  )}
+                </div>
+                <a
+                  href={m.referenceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline flex-shrink-0"
+                >
+                  <span>ATT&CK</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {!isPE && (!detection.mitre || detection.mitre.length === 0) && (
+        <Card className="p-5">
+          <h3 className="text-sm font-semibold text-navy-900 flex items-center gap-2 mb-1">
+            <Globe size={16} className="text-slate-400" />
+            MITRE ATT&CK Enterprise Mapping
+          </h3>
+          <p className="text-xs text-slate-500">
+            No ATT&CK technique is mapped for this detection. SentinelIQ only assigns a technique from a rule mapping,
+            the detection type&apos;s documented behaviour or an indicator naming it; none applies here.
+          </p>
+        </Card>
+      )}
+
+      {/* Forensic Telemetry & Supporting Evidence */}
+      {!isPE && !isDos && detection.evidence && detection.evidence.length > 0 && (
+        <Card className="p-5">
+          <h3 className="text-sm font-semibold text-navy-900 mb-3 flex items-center gap-2">
+            <Database size={16} className="text-slate-700" />
+            Forensic Telemetry & Supporting Evidence
+          </h3>
+          <div className="space-y-2">
+            {detection.evidence.map((ev, idx) => (
+              <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-slate-800">
+                    {evidenceSource(ev.source)} {ev.eventId ? `(Sysmon Event ${ev.eventId})` : ''}
+                  </span>
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    {ev.time ? new Date(ev.time).toLocaleTimeString() : ''}
+                  </span>
+                </div>
+                <p className="text-slate-700">{presentDetectionText(ev.description)}</p>
+                {ev.fields && Object.keys(ev.fields).length > 0 && (
+                  <div className="bg-white p-2 rounded border border-slate-200 font-mono text-[11px] space-y-0.5">
+                    {Object.entries(ev.fields).map(([k, v]) => (
+                      <div key={k} className="truncate">
+                        <span className="text-slate-400">{k}:</span> <span className="text-slate-800">{String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Indicators (PE: shown inside View Details) */}
+      {!isPE && (
       <Card>
         <div className="px-5 py-4 border-b border-slate-50">
           <h3 className="text-sm font-semibold text-navy-900">Indicators of Compromise</h3>
@@ -258,18 +439,19 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
             <div key={i} className="px-5 py-4">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border ${indicatorTypeColors[ind.type] ?? 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                  {ind.type}
+                  {ind.type.replace(/_/g, ' ')}
                 </span>
                 <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
                   <Clock size={10} />
                   {fmt(ind.observedAt)}
                 </div>
               </div>
-              <p className="text-sm text-slate-700 leading-relaxed">{ind.description}</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{presentDetectionText(ind.description)}</p>
             </div>
           ))}
         </div>
       </Card>
+      )}
 
       {/* Actions */}
       <Card className="p-5">
@@ -281,11 +463,24 @@ export default function DetectionDetailPage({ params }: { params: Promise<{ id: 
           </div>
         )}
         <div className="flex flex-wrap gap-3">
-          {!existingCTI ? (
-            <Button onClick={handleGenerateCTI} loading={generatingCTI} disabled={!isActive && !existingCTI}>
-              <Globe size={15} />
-              {generatingCTI ? 'Generating…' : 'Generate CTI Report'}
-            </Button>
+          {!canGenerateCti(detection) ? (
+            <span className="text-xs text-slate-500 self-center">
+              Threat-intelligence reports are not generated for network DoS alerts.
+            </span>
+          ) : isTestRecord(detection) ? (
+            <span className="text-xs text-slate-500 self-center">
+              Threat-intelligence reports are not generated for this detection.
+            </span>
+          ) : !existingCTI ? (
+            <div className="flex items-center gap-2">
+              <Button onClick={handleGenerateCTI} loading={generatingCTI} disabled={!isActive}>
+                <Globe size={15} />
+                {generatingCTI ? 'Generating Structured CTI Draft…' : 'Generate CTI Report'}
+              </Button>
+              {!isActive && (
+                <span className="text-xs text-slate-500">Reports are generated from active detections; this one is closed.</span>
+              )}
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <Button variant="secondary" onClick={() => {

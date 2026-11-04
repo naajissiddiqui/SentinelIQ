@@ -26,16 +26,42 @@ export interface DetectionDocument extends Document {
   organizationId: Types.ObjectId;
   endpointId: Types.ObjectId;
   endpointName: string;
+  attackType?: string;
+  ruleId?: string;
+  confidenceTier?: "suspicious" | "likely" | "confirmed" | string;
   riskScore: number;
   severity: DetectionSeverity;
   status: DetectionStatus;
   indicators: BehaviourIndicator[];
+  evidence?: Array<{
+    id: string;
+    source: string;
+    eventId?: number;
+    time: string;
+    description: string;
+    fields?: Record<string, any>;
+  }>;
+  mitre?: Array<{
+    tacticId: string;
+    tacticName: string;
+    techniqueId: string;
+    techniqueName: string;
+    attackVersion: string;
+    referenceUrl: string;
+    evidenceRef?: string[];
+  }>;
   modelVersion?: string;
   detectedAt: Date;
   resolvedAt?: Date;
   resolvedByUserId?: Types.ObjectId;
   ctiMatch?: CTIMatchInfo;
   cascadeId?: string;
+  /** DOS_DDOS: where the traffic came from; PCAP_REPLAY is never shown as live. */
+  dataOrigin?: "LIVE" | "PCAP_REPLAY" | "SIMULATED" | "DEMO";
+  /** Identity of the sensor alert episode this detection came from (see detectionProfile.sourceAlertKey). */
+  sourceAlertKey?: string;
+  /** DOS_DDOS: TRAINED model or transparent HEURISTIC. */
+  detectorStatus?: "TRAINED" | "HEURISTIC";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,6 +103,9 @@ const detectionSchema = new Schema<DetectionDocument>(
     organizationId: { type: Schema.Types.ObjectId, ref: "Organization", required: true, index: true },
     endpointId: { type: Schema.Types.ObjectId, ref: "Endpoint", required: true, index: true },
     endpointName: { type: String, required: true },
+    attackType: { type: String, default: "RANSOMWARE", index: true },
+    ruleId: { type: String },
+    confidenceTier: { type: String, enum: ["suspicious", "likely", "confirmed"] },
     riskScore: { type: Number, required: true, min: 0, max: 100 },
     severity: {
       type: String,
@@ -89,12 +118,18 @@ const detectionSchema = new Schema<DetectionDocument>(
       default: "NEW",
     },
     indicators: { type: [behaviourIndicatorSchema], default: [] },
+    evidence: { type: [Schema.Types.Mixed], default: [] },
+    mitre: { type: [Schema.Types.Mixed], default: [] },
     modelVersion: { type: String },
     detectedAt: { type: Date, required: true, default: Date.now },
     resolvedAt: { type: Date },
     resolvedByUserId: { type: Schema.Types.ObjectId, ref: "User" },
     ctiMatch: { type: ctiMatchSchema },
     cascadeId: { type: String, index: true },
+    dataOrigin: { type: String, enum: ["LIVE", "PCAP_REPLAY", "SIMULATED", "DEMO"] },
+    // Not indexed on purpose: schema indexes are built on the live cluster at startup.
+    sourceAlertKey: { type: String },
+    detectorStatus: { type: String, enum: ["TRAINED", "HEURISTIC"] },
   },
   { timestamps: true }
 );

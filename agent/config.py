@@ -48,3 +48,6 @@ AUTO_REPORT_DETECTIONS = os.getenv("AUTO_REPORT_DETECTIONS", "false").lower() ==
 # Telemetry and Simulation configuration
 TELEMETRY_MODE = os.getenv("TELEMETRY_MODE", "real").lower()  # "real" or "simulated"
 SIMULATION_SCENARIO = os.getenv("SIMULATION_SCENARIO", "normal").lower()  # "normal" or "ransomware"
+
+# Privilege escalation rules are off unless explicitly enabled (PRIVILEGE_ESCALATION_DETECTION=true).
+PRIVILEGE_ESCALATION_DETECTION = os.getenv("PRIVILEGE_ESCALATION_DETECTION", "false").lower() == "true"

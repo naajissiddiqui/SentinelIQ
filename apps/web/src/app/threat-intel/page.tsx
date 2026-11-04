@@ -52,6 +52,7 @@ export default function ThreatIntelPage() {
   const [isLookingUp, setIsLookingUp] = useState(false)
   const [lookupResult, setLookupResult] = useState<CTIMatchResult | null>(null)
   const [hasQueried, setHasQueried] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
 
   const filteredIOCs = useMemo(() => {
     return threatIntelIocs.filter(ioc => {
@@ -71,11 +72,14 @@ export default function ThreatIntelPage() {
 
     setIsLookingUp(true)
     setHasQueried(true)
+    setLookupError(null)
     try {
       const res = await lookupIOC(lookupInput.trim(), lookupType || undefined)
       setLookupResult(res)
-    } catch {
-      setLookupResult({ matched: false, indicator: lookupInput.trim(), type: 'IP' })
+    } catch (err) {
+      // A failed lookup is not a clean result.
+      setLookupResult(null)
+      setLookupError(err instanceof Error ? err.message : 'The lookup request failed')
     } finally {
       setIsLookingUp(false)
     }
@@ -86,9 +90,10 @@ export default function ThreatIntelPage() {
     setLookupType(type)
     setIsLookingUp(true)
     setHasQueried(true)
+    setLookupError(null)
     lookupIOC(indicator, type)
       .then(res => setLookupResult(res))
-      .catch(() => setLookupResult({ matched: false, indicator, type }))
+      .catch(err => { setLookupResult(null); setLookupError(err instanceof Error ? err.message : 'The lookup request failed') })
       .finally(() => setIsLookingUp(false))
   }
 
@@ -105,11 +110,12 @@ export default function ThreatIntelPage() {
               <Database className="w-4 h-4" />
             </div>
             <h1 className="text-xl font-bold tracking-tight" style={{ color: TEXT }}>
-              Cyber Threat Intelligence (CTI) & IOC Registry
+              Threat Intelligence Indicators
             </h1>
           </div>
           <p className="text-[13px] mt-1" style={{ color: MUTED }}>
-            Modular Threat Intelligence provider correlation engine for continuous telemetry hash, IP, domain, and URL verification.
+            Indicators of compromise (IPs, domains, file hashes, URLs) from the configured feed. Every new detection&apos;s
+            indicators are checked against them.
           </p>
         </div>
 
@@ -117,10 +123,10 @@ export default function ThreatIntelPage() {
         <div className="bg-white border rounded-[12px] p-6 shadow-sm space-y-4" style={{ borderColor: BORDER }}>
           <div>
             <h2 className="text-sm font-bold" style={{ color: TEXT }}>
-              Live Threat Intelligence Query Tool
+              Indicator Lookup
             </h2>
             <p className="text-xs" style={{ color: MUTED }}>
-              Directly interrogate active CTI providers to analyze indicator maliciousness, threat classification, and confidence scoring.
+              Check one indicator against the configured threat-intelligence feed.
             </p>
           </div>
 
@@ -128,7 +134,7 @@ export default function ThreatIntelPage() {
             <div className="flex-1 relative">
               <input
                 type="text"
-                placeholder="Enter IP (e.g. 198.51.100.23), domain (e.g. ransom-c2-gateway.darknet), hash, or URL..."
+                placeholder="Enter an IP address, domain, file hash or URL"
                 value={lookupInput}
                 onChange={e => setLookupInput(e.target.value)}
                 className="w-full px-3.5 py-2.5 border rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-teal-600/30"
@@ -161,9 +167,14 @@ export default function ThreatIntelPage() {
           </form>
 
           {/* Lookup Result Display */}
-          {hasQueried && (
+          {hasQueried && lookupError && (
+            <div role="alert" className="p-4 rounded-xl border border-red-200 bg-red-50 text-xs text-red-800">
+              The lookup could not be completed: {lookupError}. No result is shown because none was returned.
+            </div>
+          )}
+          {hasQueried && !lookupError && !isLookingUp && lookupResult && (
             <div className="pt-2">
-              {lookupResult?.matched ? (
+              {lookupResult.matched ? (
                 <div className="p-4 rounded-xl border border-red-200 bg-red-50/70 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -184,15 +195,15 @@ export default function ThreatIntelPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Category</p>
-                      <p className="text-xs font-bold text-red-700">{lookupResult.threatCategory || 'Ransomware'}</p>
+                      <p className="text-xs font-bold text-red-700">{lookupResult.threatCategory || 'Not stated'}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Severity</p>
-                      <p className="text-xs font-bold text-slate-800">{lookupResult.severity || 'CRITICAL'}</p>
+                      <p className="text-xs font-bold text-slate-800">{lookupResult.severity || 'Not stated'}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Source</p>
-                      <p className="text-xs font-medium text-slate-600">{lookupResult.source || 'SentinelIQ Local CTI'}</p>
+                      <p className="text-xs font-medium text-slate-600">{lookupResult.source || 'Not stated'}</p>
                     </div>
                   </div>
 
@@ -214,14 +225,16 @@ export default function ThreatIntelPage() {
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     <div>
-                      <p className="text-xs font-bold text-emerald-900">NO THREAT MATCH FOUND (BENIGN / UNLISTED)</p>
+                      <p className="text-xs font-bold text-emerald-900">NO MATCH IN THE CONFIGURED FEED</p>
                       <p className="text-[11px] text-emerald-700 font-mono">
-                        Indicator <strong>{lookupResult?.indicator}</strong> has no verified malicious associations in active threat feeds.
+                        {totalIOCs === 0
+                          ? 'No threat-intelligence feed is configured, so no indicator can match. This is not evidence that it is benign.'
+                          : <>Indicator <strong>{lookupResult.indicator ?? lookupInput}</strong> is not among the {totalIOCs} configured indicators. That does not prove it is benign.</>}
                       </p>
                     </div>
                   </div>
                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-200 text-emerald-900">
-                    CLEAN
+                    NO MATCH
                   </span>
                 </div>
               )}
@@ -234,10 +247,10 @@ export default function ThreatIntelPage() {
           <div className="px-5 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderColor: BORDER }}>
             <div>
               <h3 className="text-sm font-bold" style={{ color: TEXT }}>
-                Known Indicators of Compromise (IOC Registry)
+                Configured Indicators of Compromise
               </h3>
               <p className="text-[11px]" style={{ color: MUTED }}>
-                Curated and correlated indicators actively matched against agent network and process telemetry.
+                Indicators loaded from the threat-intelligence feed file configured on the server.
               </p>
             </div>
 
@@ -264,8 +277,10 @@ export default function ThreatIntelPage() {
             <div className="p-12">
               <EmptyState
                 icon={<Database className="w-10 h-10 stroke-1" />}
-                title="No IOCs found"
-                message="No indicators match your current filter criteria."
+                title={threatIntelLoading ? 'Loading indicators…' : totalIOCs === 0 ? 'No threat-intelligence feed configured' : 'No indicators match'}
+                message={threatIntelLoading ? 'Fetching the configured indicators.' : totalIOCs === 0
+                  ? 'The server has no indicator feed loaded. An administrator can load one by setting THREAT_INTEL_IOC_FILE to a JSON file of indicators.'
+                  : 'No indicators match your current filter criteria.'}
               />
             </div>
           ) : (
@@ -317,7 +332,7 @@ export default function ThreatIntelPage() {
 
                         {/* Category */}
                         <td className="px-5 py-3.5 whitespace-nowrap text-xs font-semibold text-slate-700">
-                          {ioc.threatCategory || 'Generic'}
+                          {ioc.threatCategory || 'Uncategorised'}
                         </td>
 
                         {/* Confidence */}

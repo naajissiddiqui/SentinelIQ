@@ -44,7 +44,7 @@ import type {
 } from '@/lib/types'
 
 const CONDITION_FIELDS: { value: PolicyConditionField; label: string; defaultOp: PolicyConditionOperator; defaultVal: any; unit?: string }[] = [
-  { value: 'riskScore', label: 'Detection Risk Score (0.0 - 1.0)', defaultOp: 'GREATER_THAN_OR_EQUAL', defaultVal: 0.85, unit: 'score' },
+  { value: 'riskScore', label: 'Detection Risk Score (0-100)', defaultOp: 'GREATER_THAN_OR_EQUAL', defaultVal: 85, unit: 'score' },
   { value: 'severity', label: 'Detection Severity', defaultOp: 'EQUALS', defaultVal: 'CRITICAL' },
   { value: 'consecutiveDetections', label: 'Consecutive Critical Detections', defaultOp: 'GREATER_THAN_OR_EQUAL', defaultVal: 3, unit: 'events' },
   { value: 'ctiMatch', label: 'Threat Intel Match Found', defaultOp: 'EQUALS', defaultVal: true },
@@ -103,7 +103,7 @@ export default function PoliciesPage() {
   const [enabled, setEnabled] = useState(true)
   const [logicalOperator, setLogicalOperator] = useState<'AND' | 'OR'>('AND')
   const [conditions, setConditions] = useState<PolicyCondition[]>([
-    { field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 0.85 },
+    { field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 85 },
   ])
   const [actionType, setActionType] = useState<PolicyActionType>('ISOLATE_ENDPOINT')
   const [formError, setFormError] = useState<string | null>(null)
@@ -122,7 +122,7 @@ export default function PoliciesPage() {
     setCooldownPeriodSeconds(300)
     setEnabled(true)
     setLogicalOperator('AND')
-    setConditions([{ field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 0.85 }])
+    setConditions([{ field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 85 }])
     setActionType('ISOLATE_ENDPOINT')
     setFormError(null)
     setModalOpen(true)
@@ -136,7 +136,7 @@ export default function PoliciesPage() {
     setCooldownPeriodSeconds(p.cooldownPeriodSeconds || 300)
     setEnabled(p.enabled)
     setLogicalOperator(p.logicalOperator || 'AND')
-    setConditions(p.conditions && p.conditions.length > 0 ? [...p.conditions] : [{ field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 0.85 }])
+    setConditions(p.conditions && p.conditions.length > 0 ? [...p.conditions] : [{ field: 'riskScore', operator: 'GREATER_THAN_OR_EQUAL', value: 85 }])
     setActionType(p.actions && p.actions[0] ? p.actions[0].type : 'ISOLATE_ENDPOINT')
     setFormError(null)
     setModalOpen(true)
@@ -354,10 +354,10 @@ export default function PoliciesPage() {
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
                   {policies.map(p => {
-                    const primaryAction = p.actions && p.actions[0] ? p.actions[0].type : 'ISOLATE_ENDPOINT'
-                    const actionInfo = ACTION_OPTIONS.find(a => a.value === primaryAction) || {
-                      label: primaryAction,
-                      color: P,
+                    const primaryAction = p.actions?.[0]?.type
+                    const actionInfo = (primaryAction && ACTION_OPTIONS.find(a => a.value === primaryAction)) || {
+                      label: primaryAction ? primaryAction.replace(/_/g, ' ').toLowerCase() : 'No action configured',
+                      color: primaryAction ? P : MUTED,
                     }
 
                     return (
@@ -392,7 +392,7 @@ export default function PoliciesPage() {
                         {/* Priority */}
                         <td className="px-5 py-4 whitespace-nowrap">
                           <span className="inline-flex items-center justify-center px-2 py-1 rounded text-xs font-mono font-bold bg-slate-100 text-slate-700">
-                            P{p.priority ?? 50}
+                            {p.priority != null ? `P${p.priority}` : '—'}
                           </span>
                         </td>
 
@@ -415,7 +415,7 @@ export default function PoliciesPage() {
                               IF
                             </span>
                             {p.conditions.map((c, idx) => {
-                              const fLabel = CONDITION_FIELDS.find(f => f.value === c.field)?.label.split(' ')[0] || c.field
+                              const fLabel = CONDITION_FIELDS.find(f => f.value === c.field)?.label || c.field
                               const opStr = OPERATOR_LABELS[c.operator] || c.operator
                               const valStr = typeof c.value === 'boolean' ? (c.value ? 'TRUE' : 'FALSE') : String(c.value)
 
@@ -451,7 +451,7 @@ export default function PoliciesPage() {
                         <td className="px-5 py-4 whitespace-nowrap text-[12px] font-mono" style={{ color: MUTED }}>
                           <span className="inline-flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5" />
-                            {p.cooldownPeriodSeconds || 300}s
+                            {p.cooldownPeriodSeconds != null ? `${p.cooldownPeriodSeconds}s` : '—'}
                           </span>
                         </td>
 
@@ -646,7 +646,9 @@ export default function PoliciesPage() {
                     ) : (
                       <input
                         type="number"
-                        step={cond.field === 'riskScore' ? '0.05' : '1'}
+                        step="1"
+                        min={cond.field === 'riskScore' ? 0 : undefined}
+                        max={cond.field === 'riskScore' ? 100 : undefined}
                         value={cond.value}
                         onChange={e => handleUpdateCondition(idx, { value: Number(e.target.value) })}
                         className="text-xs font-mono font-bold px-2 py-1.5 border rounded bg-white text-slate-800 outline-none w-24"

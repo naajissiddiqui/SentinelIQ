@@ -1,0 +1,177 @@
+{
+  "_fixture": "TEST FIXTURE: a real alert from the TRAINED XGBoost bundle dos-xgb-99b94241-afefb015 scoring the held-out CIC-DDoS2019 g5 extraction offline (PCAP replay; the SYN-flood alert episode). Not sent to any backend.",
+  "attackType": "DOS_DDOS",
+  "confidenceTier": "suspicious",
+  "dataOrigin": "PCAP_REPLAY",
+  "detectedAt": "2018-11-03T14:29:20Z",
+  "detectorStatus": "TRAINED",
+  "endpointId": "000000000000000000000000",
+  "evidence": [
+    {
+      "description": "5 s window for 192.168.50.4 starting 2018-11-03T14:29:20Z",
+      "fields": {
+        "target": "192.168.50.4",
+        "windowSeconds": 5,
+        "windowStartNs": "1541255360000000000"
+      },
+      "id": "dos-window",
+      "source": "netsensor",
+      "time": "2018-11-03T14:29:20Z"
+    },
+    {
+      "description": "xgboost score 0.525 >= threshold 0.475",
+      "fields": {
+        "detector": "xgboost",
+        "detectorStatus": "TRAINED",
+        "modelVersion": "dos-xgb-99b94241-afefb015",
+        "persistence": {
+          "k": 2,
+          "n": 3
+        },
+        "persistenceHits": 2,
+        "riskComponents": {
+          "margin": 0.0951,
+          "persistence": 0.6667,
+          "volume": 0.8818
+        },
+        "riskScoreDerivation": "round(40 + 20*margin + 20*persistence + 20*volume); not a probability, not calibrated",
+        "schemaVersion": "dos-window-v1",
+        "score": 0.5249691605567932,
+        "scoreSemantics": "uncalibrated XGBoost output; only its order relative to the threshold is meaningful, it is not a probability of attack",
+        "threshold": 0.47503086924552923,
+        "volumeReferencePps": 470.80000000000007
+      },
+      "id": "dos-prediction",
+      "source": "netsensor",
+      "time": "2018-11-03T14:29:20Z"
+    },
+    {
+      "description": "Inbound traffic summary for the window",
+      "fields": {
+        "baselinePpsRatio": 22768.666666666668,
+        "inBytesPerSecond": 1092914.4,
+        "inPacketsPerSecond": 27322.4,
+        "newFlows": 67500.0,
+        "outOfTrainingRange": [
+          "in_packets",
+          "in_pkts_per_s",
+          "out_packets",
+          "unique_dst_ports",
+          "flows_active",
+          "flows_new",
+          "new_flows_per_s",
+          "in_pps_ratio_baseline",
+          "new_flow_rate_ratio_baseline"
+        ],
+        "protocolMix": {
+          "in_icmp_share": 2.928000468480075e-05,
+          "in_other_share": 0.0,
+          "in_tcp_share": 0.9999707199953152,
+          "in_udp_share": 0.0
+        },
+        "topFeatures": [
+          {
+            "contribution": 0.09996,
+            "feature": "unique_src_ports",
+            "value": 45275.0
+          },
+          {
+            "contribution": 0.0,
+            "feature": "in_packets",
+            "value": 136612.0
+          },
+          {
+            "contribution": 0.0,
+            "feature": "in_pkts_per_s",
+            "value": 27322.4
+          },
+          {
+            "contribution": 0.0,
+            "feature": "in_bytes",
+            "value": 5464572.0
+          },
+          {
+            "contribution": 0.0,
+            "feature": "out_packets",
+            "value": 54827.0
+          }
+        ],
+        "unansweredFlowShare": 0.6051611938065674,
+        "uniqueSources": 1.0
+      },
+      "id": "dos-traffic",
+      "source": "netsensor",
+      "time": "2018-11-03T14:29:20Z"
+    },
+    {
+      "description": "10 capture file(s), processed offline",
+      "fields": {
+        "captures": [
+          {
+            "bytes": 200001215,
+            "file": "SAT-03-11-2018_0136",
+            "sha256": "7b585b6809000f77827275f6a94aa57607512832d72f887cdece1e814b7f69bb"
+          },
+          {
+            "bytes": 200000032,
+            "file": "SAT-03-11-2018_0137",
+            "sha256": "e8d76130a6e5014177a9260345495fc48ac667fc31f92782748621cac69c43bc"
+          },
+          {
+            "bytes": 200000030,
+            "file": "SAT-03-11-2018_0138",
+            "sha256": "08bb38057fba1ce93f62b34eedbf5b4680bd6b1b36b6f79938a2852fa8366a52"
+          },
+          {
+            "bytes": 200000026,
+            "file": "SAT-03-11-2018_0139",
+            "sha256": "8280a50b657072787b481b92c292dabc8a20ea39e1c420acc6621d07527af7eb"
+          },
+          {
+            "bytes": 200000067,
+            "file": "SAT-03-11-2018_0140",
+            "sha256": "0ccf8bda128efa58b119a84ed26a4b237ee839ac48297f01ca76a5894ac2ed5e"
+          },
+          {
+            "bytes": 200000067,
+            "file": "SAT-03-11-2018_0141",
+            "sha256": "af8606ff26457a030e4f6d0204909e9da3ca12ebf464f2541a1075cda5d9dbe3"
+          },
+          {
+            "bytes": 200000058,
+            "file": "SAT-03-11-2018_0142",
+            "sha256": "85f50de9ac48d974e20d5d8de4ac2556091e10ee6fe40b1d07c62ffb8961f0ba"
+          },
+          {
+            "bytes": 200001122,
+            "file": "SAT-03-11-2018_0143",
+            "sha256": "625cd2d5de83c79d5b5a2bf62eb1283c25b7eda5aca0f016397371ef501c1dcf"
+          },
+          {
+            "bytes": 200000054,
+            "file": "SAT-03-11-2018_0144",
+            "sha256": "3d6f0f6e4dedce7bcb7ecdd9ac9730262593539518a73bd87718385e98380399"
+          },
+          {
+            "bytes": 69754880,
+            "file": "SAT-03-11-2018_0145",
+            "sha256": "eef2069b39526d1850e72140424b3b4910b11c8085dafbad85ed4fccd52bb749"
+          }
+        ]
+      },
+      "id": "pcap-provenance",
+      "source": "netsensor",
+      "time": "2018-11-03T14:29:20Z"
+    }
+  ],
+  "indicators": [
+    {
+      "description": "27322 packets/s inbound to 192.168.50.4 (xgboost, TRAINED)",
+      "type": "NETWORK_FLOOD"
+    }
+  ],
+  "modelVersion": "dos-xgb-99b94241-afefb015",
+  "organizationId": "000000000000000000000000",
+  "riskScore": 73,
+  "ruleId": "DOS-XGB"
+}

@@ -10,9 +10,9 @@ import {
   FileText,
   Globe,
   Settings,
-  ChevronDown,
-  Search,
   Bell,
+  ShieldCheck,
+  Users,
   LogOut,
   SlidersHorizontal,
   Radio,
@@ -30,12 +30,23 @@ const NAV = [
   { id: 'threat-intel', label: 'Threat Intel (CTI)', path: '/threat-intel', Icon: Database },
   { id: 'cti-center', label: 'CTI Reports', path: '/cti-center', Icon: FileText },
   { id: 'cti-feed', label: 'CTI Feed', path: '/cti-feed', Icon: Globe },
+  { id: 'blockchain-verification', label: 'Verify Report', path: '/blockchain-verification', Icon: ShieldCheck },
+  { id: 'team', label: 'Team', path: '/team', Icon: Users },
+  // Hidden from the sidebar; the /audit-logs page still exists.
+  // { id: 'audit-logs', label: 'Audit Log', path: '/audit-logs', Icon: ClipboardList },
 ]
+
+const ROLE_LABELS: Record<string, string> = {
+  ORG_ADMIN: 'Org Admin',
+  SECURITY_ANALYST: 'Security Analyst',
+  SUPER_ADMIN: 'Super Admin',
+}
 
 export default function Layout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const { currentUser, logout } = useApp()
+  const { currentUser, logout, detections } = useApp()
+  const activeDetections = detections.filter(d => d.status === 'NEW' || d.status === 'INVESTIGATING').length
 
   const initials = currentUser?.name
     ? currentUser.name
@@ -46,7 +57,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         .toUpperCase()
     : 'U'
 
-  const roleLabel = currentUser?.role === 'ORG_ADMIN' ? 'Org Admin' : 'Analyst'
+  const roleLabel = (currentUser?.role && ROLE_LABELS[currentUser.role]) || 'User'
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: BG }}>
@@ -123,27 +134,22 @@ export default function Layout({ children }: { children: ReactNode }) {
         <header className="h-16 flex-shrink-0 flex items-center px-6 gap-4 bg-white border-b" style={{ borderColor: BORDER }}>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="text-[13px] font-semibold" style={{ color: TEXT }}>
-              Workspace
+              Security Operations
             </span>
-            <ChevronDown className="w-3.5 h-3.5" style={{ color: MUTED }} />
           </div>
-          <div className="flex-1 flex justify-center">
-            <div className="flex items-center gap-2 px-3 h-9 rounded-[10px] border w-full max-w-[300px]"
-              style={{ backgroundColor: BG, borderColor: BORDER }}>
-              <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: MUTED }} />
-              <input
-                placeholder="Search or press ⌘K"
-                className="flex-1 text-[13px] bg-transparent outline-none"
-                style={{ color: TEXT }}
-              />
-              <kbd className="text-[10px] px-1.5 py-0.5 rounded border" style={{ color: MUTED, borderColor: BORDER }}>⌘K</kbd>
-            </div>
-          </div>
+          <div className="flex-1" />
           <div className="flex items-center gap-3 flex-shrink-0">
-            <button className="relative p-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+            <button
+              onClick={() => router.push('/detections')}
+              title={activeDetections > 0 ? `${activeDetections} active detection${activeDetections === 1 ? '' : 's'} need review` : 'No active detections'}
+              aria-label="Active detections"
+              className="relative p-1.5 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+            >
               <Bell className="w-4 h-4" style={{ color: MUTED }} />
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full border-2 border-white"
-                style={{ backgroundColor: RED }} />
+              {activeDetections > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full border-2 border-white"
+                  style={{ backgroundColor: RED }} />
+              )}
             </button>
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold"
               style={{ backgroundColor: STORM }}>

@@ -3,6 +3,7 @@
 import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { X, CheckCircle2, AlertCircle, Info, Loader2 } from 'lucide-react'
 import type { DetectionSeverity, DetectionStatus, EndpointStatus, CTIStatus, VerificationStatus, UserRole, Toast } from '@/lib/types'
+import { SEVERITY_HEX, severityFromRiskScore, RISK_SCORE_HELP } from '@/lib/severity'
 
 // ── Figma Design System Tokens ───────────────────────────────────────────────
 export const P = "#17313E";     // primary dark teal
@@ -15,55 +16,6 @@ export const BORDER = "#E5E7EB";
 export const RED = "#DC2626";
 export const AMBER = "#F59E0B";
 export const GREEN = "#16A34A";
-
-// ── Figma Datasets ────────────────────────────────────────────────────────────
-export const lineData = [
-  { d: 1, v: 3 }, { d: 2, v: 5 }, { d: 3, v: 2 }, { d: 4, v: 8 },
-  { d: 5, v: 12 }, { d: 6, v: 6 }, { d: 7, v: 3 }, { d: 8, v: 4 },
-  { d: 9, v: 7 }, { d: 10, v: 9 }, { d: 11, v: 14 }, { d: 12, v: 11 },
-  { d: 13, v: 5 }, { d: 14, v: 3 }, { d: 15, v: 8 }, { d: 16, v: 6 },
-  { d: 17, v: 4 }, { d: 18, v: 9 }, { d: 19, v: 16 }, { d: 20, v: 13 },
-  { d: 21, v: 7 }, { d: 22, v: 5 }, { d: 23, v: 3 }, { d: 24, v: 6 },
-  { d: 25, v: 8 }, { d: 26, v: 11 }, { d: 27, v: 9 }, { d: 28, v: 4 },
-  { d: 29, v: 6 }, { d: 30, v: 3 },
-];
-
-export const pieData = [
-  { name: "Online", value: 48, color: GREEN },
-  { name: "Offline", value: 2, color: MUTED },
-  { name: "At Risk", value: 3, color: AMBER },
-];
-
-export const riskData = [
-  { label: "Low", count: 24, color: GREEN },
-  { label: "Medium", count: 14, color: AMBER },
-  { label: "High", count: 8, color: "#F97316" },
-  { label: "Critical", count: 3, color: RED },
-];
-
-export const ENDPOINTS = [
-  { id: 1, name: "WORKSTATION-A01", status: "Online", lastSeen: "2 min ago", os: "Windows 11 22H2", cpu: 34, ram: 62, disk: 45 },
-  { id: 2, name: "WORKSTATION-B07", status: "Online", lastSeen: "5 min ago", os: "Windows 10 21H2", cpu: 78, ram: 81, disk: 67 },
-  { id: 3, name: "SERVER-MAIN-01", status: "At Risk", lastSeen: "12 min ago", os: "Ubuntu 22.04 LTS", cpu: 91, ram: 87, disk: 73 },
-  { id: 4, name: "LAPTOP-EXEC-04", status: "Offline", lastSeen: "3 hrs ago", os: "macOS Ventura 13.4", cpu: 0, ram: 0, disk: 0 },
-  { id: 5, name: "WORKSTATION-C12", status: "Online", lastSeen: "1 min ago", os: "Windows 11 22H2", cpu: 22, ram: 41, disk: 38 },
-  { id: 6, name: "SERVER-DB-02", status: "Online", lastSeen: "8 min ago", os: "Ubuntu 20.04 LTS", cpu: 55, ram: 69, disk: 82 },
-];
-
-export const DETECTIONS = [
-  { id: 1, time: "2024-01-15 14:23:07", endpoint: "SERVER-MAIN-01", score: 96, status: "New", severity: "Critical" },
-  { id: 2, time: "2024-01-15 11:04:33", endpoint: "WORKSTATION-B07", score: 72, status: "Investigating", severity: "High" },
-  { id: 3, time: "2024-01-14 22:17:51", endpoint: "LAPTOP-EXEC-04", score: 38, status: "Resolved", severity: "Low" },
-  { id: 4, time: "2024-01-14 09:42:18", endpoint: "WORKSTATION-A01", score: 61, status: "Resolved", severity: "Medium" },
-  { id: 5, time: "2024-01-13 16:55:44", endpoint: "SERVER-DB-02", score: 88, status: "New", severity: "High" },
-];
-
-export const CTI_FEED = [
-  { id: 1, org: "ThreatWatch Inc.", type: "Ransomware", preview: "LockBit 3.0 variant detected targeting healthcare sector infrastructure via RDP brute-force...", time: "2 hrs ago", verified: true },
-  { id: 2, org: "Anonymous", type: "Phishing", preview: "Credential harvesting campaign using fake Microsoft 365 login pages, spoofing internal IT...", time: "5 hrs ago", verified: true },
-  { id: 3, org: "CyberSentinel", type: "Supply Chain", preview: "Compromised npm package 'auth-utils@2.1.4' exfiltrating environment variables on install...", time: "1 day ago", verified: false },
-  { id: 4, org: "RedTeam Labs", type: "Ransomware", preview: "Novel encryption routine targeting network shares with double-extortion ransom demand...", time: "2 days ago", verified: true },
-];
 
 // ── Figma Core Components ───────────────────────────────────────────────────
 export function StatusBadge({ status }: { status: string }) {
@@ -89,11 +41,13 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 export function ScoreBadge({ score }: { score: number }) {
-  const bg = score > 75 ? RED : score > 40 ? AMBER : GREEN;
+  // Same thresholds as the backend's severity (lib/severity.ts); a severity score, not a probability.
+  const severity = severityFromRiskScore(score);
   return (
     <span
       className="inline-flex items-center justify-center w-9 h-9 rounded-full text-[12px] font-bold text-white flex-shrink-0"
-      style={{ backgroundColor: bg }}
+      style={{ backgroundColor: SEVERITY_HEX[severity] }}
+      title={`${severity} · ${RISK_SCORE_HELP}`}
     >
       {score}
     </span>
@@ -181,16 +135,23 @@ const endpointStatusStyles: Record<EndpointStatus, string> = {
   ISOLATED: 'bg-purple-50 text-purple-700 border border-purple-200',
 }
 
-const ctiStatusStyles: Record<CTIStatus, string> = {
+const ctiStatusStyles: Record<string, string> = {
   PUBLISHED: 'bg-green-50 text-green-700 border border-green-200',
+  ANCHORED: 'bg-green-50 text-green-700 border border-green-200',
   DRAFT: 'bg-slate-100 text-slate-500 border border-slate-200',
+  PENDING_APPROVAL: 'bg-amber-50 text-amber-700 border border-amber-200',
+  PUBLISHING: 'bg-blue-50 text-blue-700 border border-blue-200',
   FAILED: 'bg-red-50 text-red-600 border border-red-200',
 }
 
-const verificationStyles: Record<VerificationStatus, string> = {
+const verificationStyles: Record<string, string> = {
   VERIFIED: 'bg-green-50 text-green-700 border border-green-200',
   PENDING: 'bg-amber-50 text-amber-700 border border-amber-200',
   FAILED: 'bg-red-50 text-red-600 border border-red-200',
+  TAMPERED: 'bg-red-100 text-red-800 border border-red-400 font-bold',
+  UNANCHORED: 'bg-slate-100 text-slate-600 border border-slate-300',
+  UNTRUSTED_PUBLISHER: 'bg-orange-100 text-orange-800 border border-orange-300 font-medium',
+  UNAVAILABLE: 'bg-amber-50 text-amber-800 border border-amber-300',
 }
 
 const roleBadgeStyles: Record<UserRole, string> = {
@@ -238,18 +199,22 @@ export function EndpointStatusBadge({ status }: { status: EndpointStatus }) {
   )
 }
 
-export function CTIStatusBadge({ status }: { status: CTIStatus }) {
+export function CTIStatusBadge({ status }: { status?: string }) {
+  const s = (status || 'DRAFT').toUpperCase()
+  const style = ctiStatusStyles[s] || 'bg-slate-100 text-slate-500 border border-slate-200'
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ctiStatusStyles[status]}`}>
-      {status}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${style}`}>
+      {s.replace('_', ' ')}
     </span>
   )
 }
 
-export function VerificationBadge({ status }: { status: VerificationStatus }) {
+export function VerificationBadge({ status }: { status?: string }) {
+  const s = (status || 'UNANCHORED').toUpperCase()
+  const style = verificationStyles[s] || 'bg-slate-100 text-slate-500 border border-slate-200'
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${verificationStyles[status]}`}>
-      {status}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${style}`}>
+      {s.replace('_', ' ')}
     </span>
   )
 }

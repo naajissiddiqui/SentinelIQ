@@ -19,6 +19,9 @@ import type {
   Cascade,
   ThreatIntelIOC,
   CTIMatchResult,
+  CTIVerificationResult,
+  DetectionPage,
+  DetectionSummary,
 } from '@/lib/types'
 import {
   apiGet,
@@ -33,6 +36,8 @@ import {
 } from '@/lib/api'
 import { initSocket, disconnectSocket, getSocket } from '@/lib/socket'
 import { ToastItem } from '@/components/ui'
+import { isDemoReport, isTestRecord } from '@/lib/demoData'
+import { buildDetectionToast } from '@/lib/alertSummary'
 
 interface ListState<T> {
   data: T[]
@@ -43,6 +48,26 @@ interface ListState<T> {
 function initList<T>(defaultData: T[] = []): ListState<T> {
   return { data: defaultData, loading: false, error: null }
 }
+
+/** The server's error message, so a failed request is shown as a failure, never as "no data". */
+/** The URL for a page id used with navigate(); every id maps to an existing app route. */
+function routeFor(page: string, params: Record<string, string>): string {
+  const id = params.id ? encodeURIComponent(params.id) : ''
+  switch (page) {
+    case 'detection-detail': return id ? `/detections/${id}` : '/detections'
+    case 'endpoint-detail': return id ? `/endpoints/${id}` : '/endpoints'
+    case 'endpoints': return params.endpointId ? `/endpoints/${encodeURIComponent(params.endpointId)}` : '/endpoints'
+    case 'cti-draft-editor': return id ? `/cti-draft-editor?id=${id}` : '/cti-center'
+    default: return `/${page}`
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : 'Request failed'
+}
+
+/** Page size for the detections list; the server caps it at 200 and reports the true total. */
+const DETECTION_PAGE_SIZE = 100
 
 const PUBLIC_PATHS = ['/', '/login', '/register', '/join-organization', '/forgot-password']
 
@@ -59,6 +84,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Data states (initialized with empty lists - populated from real backend API)
   const [endpointState, setEndpointState] = useState<ListState<Endpoint>>(initList([]))
   const [detectionState, setDetectionState] = useState<ListState<Detection>>(initList([]))
+  const [detectionPaging, setDetectionPaging] = useState<{ total: number; page: number; hasMore: boolean }>({ total: 0, page: 0, hasMore: false })
+  const [detectionSummaryState, setDetectionSummaryState] = useState<{ data: DetectionSummary | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null })
   const [ctiState, setCtiState] = useState<ListState<CTIReport>>(initList([]))
   const [teamState, setTeamState] = useState<ListState<TeamUser>>(initList([]))
   const [invitationState, setInvitationState] = useState<ListState<Invitation>>(initList([]))
@@ -79,7 +106,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (newPage !== 'login' && newPage !== 'register' && newPage !== 'join-organization') {
       localStorage.setItem('ransomshield_saved_page', newPage)
     }
-  }, [])
+    router.push(routeFor(newPage, params))
+  }, [router])
 
   // ─── Toasts ───────────────────────────────────────────────────────────────────
 
@@ -102,33 +130,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ endpoints: Endpoint[] }>('/endpoints')
       setEndpointState({ data: data.endpoints, loading: false, error: null })
-    } catch {
-      setEndpointState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setEndpointState(s => ({ ...s, loading: false, error: errorMessage(err) }))
+    }
+  }, [])
+
+  const fetchDetectionSummary = useCallback(async () => {
+    setDetectionSummaryState(s => ({ ...s, loading: true, error: null }))
+    try {
+      const data = await apiGet<{ summary: DetectionSummary }>('/detections/summary')
+      setDetectionSummaryState({ data: data.summary, loading: false, error: null })
+    } catch (err) {
+      setDetectionSummaryState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
   const fetchDetections = useCallback(async () => {
     setDetectionState(s => ({ ...s, loading: true, error: null }))
     try {
-      const data = await apiGet<{ detections: Detection[] }>('/detections')
+      const data = await apiGet<DetectionPage>(`/detections?page=1&limit=${DETECTION_PAGE_SIZE}`)
       setDetectionState({ data: data.detections, loading: false, error: null })
-    } catch {
-      setDetectionState(s => ({ ...s, loading: false }))
+      setDetectionPaging({ total: data.total ?? data.detections.length, page: 1, hasMore: Boolean(data.hasMore) })
+    } catch (err) {
+      setDetectionState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
-  }, [])
+    fetchDetectionSummary()
+  }, [fetchDetectionSummary])
+
+  const loadMoreDetections = useCallback(async () => {
+    const next = detectionPaging.page + 1
+    setDetectionState(s => ({ ...s, loading: true, error: null }))
+    try {
+      const data = await apiGet<DetectionPage>(`/detections?page=${next}&limit=${DETECTION_PAGE_SIZE}`)
+      setDetectionState(s => {
+        const seen = new Set(s.data.map(d => d._id))
+        return { data: [...s.data, ...data.detections.filter(d => !seen.has(d._id))], loading: false, error: null }
+      })
+      setDetectionPaging({ total: data.total, page: next, hasMore: Boolean(data.hasMore) })
+    } catch (err) {
+      setDetectionState(s => ({ ...s, loading: false, error: errorMessage(err) }))
+    }
+  }, [detectionPaging.page])
 
   const fetchCTI = useCallback(async () => {
     setCtiState(s => ({ ...s, loading: true, error: null }))
     try {
       const [myData, feedData] = await Promise.all([
-        apiGet<{ reports: CTIReport[] }>('/cti'),
+        apiGet<{ reports: CTIReport[] }>('/cti?scope=incidents'),
         apiGet<{ reports: CTIReport[] }>('/cti/feed'),
       ])
-      setCtiState({ data: myData.reports, loading: false, error: null })
-      setFeedState({ data: feedData.reports, loading: false, error: null })
-    } catch {
-      setCtiState(s => ({ ...s, loading: false }))
-      setFeedState(s => ({ ...s, loading: false }))
+      setCtiState({ data: myData.reports || [], loading: false, error: null })
+      setFeedState({ data: feedData.reports || [], loading: false, error: null })
+    } catch (err) {
+      setCtiState(s => ({ ...s, loading: false, error: errorMessage(err) }))
+      setFeedState(s => ({ ...s, loading: false, error: errorMessage(err) }))
+    }
+  }, [])
+
+  const refetchFeed = useCallback(async () => {
+    setFeedState(s => ({ ...s, loading: true, error: null }))
+    try {
+      const feedData = await apiGet<{ reports: CTIReport[] }>('/cti/feed')
+      setFeedState({ data: feedData.reports || [], loading: false, error: null })
+    } catch (err) {
+      setFeedState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -137,8 +202,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ users: TeamUser[] }>('/users')
       setTeamState({ data: data.users, loading: false, error: null })
-    } catch {
-      setTeamState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setTeamState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -147,8 +212,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ invitations: Invitation[] }>('/users/invitations')
       setInvitationState({ data: data.invitations, loading: false, error: null })
-    } catch {
-      setInvitationState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setInvitationState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -157,8 +222,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ logs: AuditLog[] }>('/audit-logs')
       setAuditState({ data: data.logs, loading: false, error: null })
-    } catch {
-      setAuditState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setAuditState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -167,8 +232,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ policies: Policy[] }>('/policies')
       setPolicyState({ data: data.policies || [], loading: false, error: null })
-    } catch {
-      setPolicyState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setPolicyState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -177,8 +242,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ cascades: Cascade[] }>('/cascades')
       setCascadeState({ data: data.cascades || [], loading: false, error: null })
-    } catch {
-      setCascadeState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setCascadeState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
@@ -187,27 +252,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiGet<{ iocs: ThreatIntelIOC[] }>('/threat-intel/iocs')
       setThreatIntelState({ data: data.iocs || [], loading: false, error: null })
-    } catch {
-      setThreatIntelState(s => ({ ...s, loading: false }))
+    } catch (err) {
+      setThreatIntelState(s => ({ ...s, loading: false, error: errorMessage(err) }))
     }
   }, [])
 
+  // Errors propagate to the caller: a failed request is not an empty timeline.
   const fetchEndpointTimeline = useCallback(async (endpointId: string) => {
-    try {
-      const data = await apiGet<{ events: TimelineEvent[] }>(`/endpoints/${endpointId}/timeline`)
-      return data.events || []
-    } catch {
-      return []
-    }
+    const data = await apiGet<{ events: TimelineEvent[] }>(`/endpoints/${endpointId}/timeline`)
+    return data.events || []
   }, [])
 
   const fetchDetectionTimeline = useCallback(async (detectionId: string) => {
-    try {
-      const data = await apiGet<{ events: TimelineEvent[] }>(`/detections/${detectionId}/timeline`)
-      return data.events || []
-    } catch {
-      return []
-    }
+    const data = await apiGet<{ events: TimelineEvent[] }>(`/detections/${detectionId}/timeline`)
+    return data.events || []
   }, [])
 
   // ─── Auth Handlers ────────────────────────────────────────────────────────────
@@ -274,16 +332,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
 
     socket.on('detection:new', (detection: Detection) => {
+      // Test records (demonstration or simulated) are not incidents: the server leaves them out of
+      // incident lists and counts, so live updates do too.
+      if (isTestRecord(detection)) return
       setDetectionState(s => {
         if (s.data.some(d => d._id === detection._id)) return s
         return { ...s, data: [detection, ...s.data] }
       })
-      setEndpointState(s => ({
-        ...s,
-        data: s.data.map(e => (e._id === detection.endpointId ? { ...e, status: 'AT_RISK' } : e)),
-      }))
+      setDetectionPaging(p => ({ ...p, total: p.total + 1 }))
+      // Endpoint status comes from the server's 'endpoint:updated' event: a DoS/DDoS
+      // detection is alert-only and does not move the endpoint to AT_RISK.
+      fetchDetectionSummary()
       showToast(
-        `New ${detection.severity} detection on ${detection.endpointName} — Risk score: ${detection.riskScore}`,
+        buildDetectionToast(detection),
         detection.severity === 'CRITICAL' || detection.severity === 'HIGH' ? 'error' : 'info',
       )
     })
@@ -294,6 +355,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         data: s.data.map(d => (d._id === detection._id ? detection : d)),
       }))
       fetchEndpoints()
+      fetchDetectionSummary()
       showToast(
         `Detection on ${detection.endpointName} marked as ${detection.status === 'FALSE_POSITIVE' ? 'False Positive' : 'Resolved'}`,
         'success',
@@ -301,11 +363,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
 
     socket.on('cti:published', (report: CTIReport) => {
-      setCtiState(s => ({
-        ...s,
-        data: s.data.map(r => (r._id === report._id ? report : r)),
-      }))
-      showToast('CTI Report published to blockchain and verified', 'success')
+      if (isDemoReport(report)) return
+      setCtiState(s => {
+        const exists = s.data.some(r => r._id === report._id || (r.reportId && r.reportId === report.reportId))
+        if (exists) {
+          return {
+            ...s,
+            data: s.data.map(r => (r._id === report._id || r.reportId === report.reportId ? report : r)),
+          }
+        }
+        return { ...s, data: [report, ...s.data] }
+      })
+      setFeedState(s => {
+        const exists = s.data.some(r => r._id === report._id || (r.reportId && r.reportId === report.reportId))
+        if (exists) {
+          return {
+            ...s,
+            data: s.data.map(r => (r._id === report._id || r.reportId === report.reportId ? report : r)),
+          }
+        }
+        return { ...s, data: [report, ...s.data] }
+      })
+      showToast(report.reportId ? `CTI report ${report.reportId} anchored on Polygon Amoy` : 'CTI report anchored on Polygon Amoy', 'success')
     })
 
     socket.on('policy:triggered', (data: { policyId: string; policyName: string; action: string; endpointId?: string; endpointName?: string }) => {
@@ -545,40 +624,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [showToast])
 
   const addEndpoint = useCallback(async (name: string) => {
-    let newEp: Endpoint = {
-      _id: `ep-${Date.now()}`,
-      name,
-      status: 'PENDING',
-      osVersion: 'Windows Server 2022',
-      agentVersion: '2.4.1',
-      lastCheckInAt: new Date().toISOString(),
-      cpuUsagePercent: 12,
-      ramUsagePercent: 35,
-      diskUsagePercent: 20,
-      createdAt: new Date().toISOString(),
-    }
-    let token = `act-${Math.random().toString(36).slice(2)}`
-    let instructions = 'Run setup.exe --token ' + token
-
     try {
       const data = await apiPost<{ endpoint: Endpoint; activationToken: string; installInstructions: string }>('/endpoints', { name })
-      newEp = data.endpoint
-      token = data.activationToken
-      instructions = data.installInstructions
-    } catch {
-      // Offline fallback
+      setEndpointState(s => ({ ...s, data: [...s.data, data.endpoint] }))
+      showToast(`Endpoint "${name}" added successfully`, 'success')
+      return data
+    } catch (err) {
+      showToast(`Could not add endpoint: ${errorMessage(err)}`, 'error')
+      throw err
     }
-
-    setEndpointState(s => ({ ...s, data: [...s.data, newEp] }))
-    showToast(`Endpoint "${name}" added successfully`, 'success')
-    return { endpoint: newEp, activationToken: token, installInstructions: instructions }
   }, [showToast])
 
   const removeEndpoint = useCallback(async (id: string) => {
     try {
       await apiDelete(`/endpoints/${id}`)
-    } catch {
-      // Fallback
+    } catch (err) {
+      showToast(`Could not remove endpoint: ${errorMessage(err)}`, 'error')
+      throw err
     }
     setEndpointState(s => ({ ...s, data: s.data.filter(e => e._id !== id) }))
     showToast('Endpoint removed', 'success')
@@ -593,11 +655,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }))
       showToast(`Endpoint ${data.endpoint.name || id} isolated successfully`, 'success')
     } catch (err: any) {
-      setEndpointState(s => ({
-        ...s,
-        data: s.data.map(e => (e._id === id ? { ...e, status: 'ISOLATED' } : e)),
-      }))
-      showToast(err.message || 'Endpoint isolated', 'success')
+      // The endpoint's state is unchanged: never show an isolation that did not happen.
+      showToast(`Isolation failed: ${errorMessage(err)}`, 'error')
     }
   }, [showToast])
 
@@ -610,11 +669,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }))
       showToast(`Isolation released for endpoint ${data.endpoint.name || id}`, 'success')
     } catch (err: any) {
-      setEndpointState(s => ({
-        ...s,
-        data: s.data.map(e => (e._id === id ? { ...e, status: 'ONLINE' } : e)),
-      }))
-      showToast(err.message || 'Endpoint isolation released', 'success')
+      showToast(`Could not release isolation: ${errorMessage(err)}`, 'error')
     }
   }, [showToast])
 
@@ -634,31 +689,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [showToast, fetchEndpoints])
 
   const generateCTI = useCallback(async (detectionId: string): Promise<CTIReport> => {
-    let report: CTIReport = {
-      _id: `cti-${Date.now()}`,
-      detectionId,
-      attackSummary: 'Draft CTI report generated for detection ' + detectionId,
-      indicatorsOfCompromise: ['Sample IoC entry'],
-      recommendedActions: ['Isolate affected host'],
-      analystNotes: '',
-      status: 'DRAFT',
-      transactionHash: null,
-      blockNumber: null,
-      verificationStatus: 'PENDING',
-      publishedAt: null,
-      createdAt: new Date().toISOString(),
-    }
-
     try {
       const data = await apiPost<{ report: CTIReport }>('/cti', { detectionId })
-      report = data.report
-    } catch {
-      // Fallback
+      const report = data.report
+      setCtiState(s => {
+        const exists = s.data.some(r => r._id === report._id || (r.reportId && r.reportId === report.reportId))
+        if (exists) {
+          return {
+            ...s,
+            data: s.data.map(r => r._id === report._id || r.reportId === report.reportId ? report : r),
+          }
+        }
+        return { ...s, data: [report, ...s.data] }
+      })
+      showToast('Structured CTI report generated from detection', 'success')
+      return report
+    } catch (err: any) {
+      showToast(err.message || 'Failed to generate CTI draft', 'error')
+      throw err
     }
-
-    setCtiState(s => ({ ...s, data: [report, ...s.data] }))
-    showToast('CTI draft generated from detection', 'success')
-    return report
   }, [showToast])
 
   const updateCTIDraft = useCallback(async (
@@ -669,80 +718,133 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const data = await apiPatch<{ report: CTIReport }>(`/cti/${id}`, body)
       setCtiState(s => ({
         ...s,
-        data: s.data.map(r => (r._id === id ? data.report : r)),
+        data: s.data.map(r => (r._id === id || r.reportId === id ? data.report : r)),
       }))
-    } catch {
-      setCtiState(s => ({
-        ...s,
-        data: s.data.map(r => (r._id === id ? { ...r, ...body } : r)),
-      }))
+      showToast('Draft saved', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save draft', 'error')
+      throw err
     }
-    showToast('Draft saved', 'success')
   }, [showToast])
 
   const publishCTI = useCallback(async (id: string) => {
-    const mockTx = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
-    const mockBlock = Math.floor(55000000 + Math.random() * 1000000)
-
-    try {
-      const data = await apiPost<{ report: CTIReport }>(`/cti/${id}/publish`)
-      setCtiState(s => ({
-        ...s,
-        data: s.data.map(r => (r._id === id ? data.report : r)),
-      }))
-    } catch {
-      setCtiState(s => ({
-        ...s,
-        data: s.data.map(r =>
-          r._id === id
-            ? {
-                ...r,
-                status: 'PUBLISHED',
-                transactionHash: mockTx,
-                blockNumber: mockBlock,
-                verificationStatus: 'VERIFIED',
-                publishedAt: new Date().toISOString(),
-              }
-            : r,
-        ),
-      }))
+    const replace = (report: CTIReport) => {
+      const match = (r: CTIReport) => r._id === id || r.reportId === id || r._id === report._id
+      setCtiState(s => ({ ...s, data: s.data.map(r => (match(r) ? report : r)) }))
+      setFeedState(s => {
+        const rest = s.data.filter(r => !match(r))
+        // The feed only lists reports with a confirmed on-chain anchor.
+        return { ...s, data: report.status === 'PUBLISHED' ? [report, ...rest] : rest }
+      })
     }
-    showToast('CTI Report published to Polygon blockchain and verified', 'success')
+    try {
+      const data = await apiPost<{ report: CTIReport; pending?: boolean; message?: string }>(`/cti/${id}/publish`)
+      replace(data.report)
+      if (data.pending) {
+        showToast(data.message || 'Transaction submitted; awaiting confirmation. Publish again to re-check.', 'warning')
+      } else if (data.report.verificationStatus === 'VERIFIED') {
+        showToast(`Anchored on Polygon Amoy in block ${data.report.blockNumber} and verified on-chain`, 'success')
+      } else {
+        showToast(`Anchored in block ${data.report.blockNumber}; on-chain read-back pending, use Verify Report`, 'warning')
+      }
+      return data.report
+    } catch (err: any) {
+      // Reflect the server's real state (FAILED, or PUBLISHING with a pending tx)
+      try {
+        const fresh = await apiGet<{ report: CTIReport }>(`/cti/${id}`)
+        replace(fresh.report)
+      } catch {
+        /* keep current state */
+      }
+      showToast(err.message || 'Failed to publish CTI Report to blockchain', 'error')
+      throw err
+    }
+  }, [showToast])
+
+  const verifyCTI = useCallback(async (id: string): Promise<CTIVerificationResult> => {
+    try {
+      const data = await apiGet<{ verification: CTIVerificationResult }>(`/cti/${id}/verify`)
+      const ver = data.verification
+      setCtiState(s => ({
+        ...s,
+        data: s.data.map(r => (r._id === id || r.reportId === id ? { ...r, verificationStatus: ver.status === 'UNAVAILABLE' ? r.verificationStatus : ver.status } : r)),
+      }))
+      setFeedState(s => ({
+        ...s,
+        data: s.data.map(r => (r._id === id || r.reportId === id ? { ...r, verificationStatus: ver.status === 'UNAVAILABLE' ? r.verificationStatus : ver.status } : r)),
+      }))
+      if (ver.status === 'VERIFIED') {
+        showToast('Report verified: On-chain content hash matches perfectly', 'success')
+      } else if (ver.status === 'TAMPERED') {
+        showToast('TAMPER ALERT: Stored report content does not match on-chain hash!', 'error')
+      } else if (ver.status === 'UNANCHORED') {
+        showToast(ver.error || 'Report is not anchored on-chain', 'warning')
+      } else if (ver.status === 'UNAVAILABLE') {
+        showToast(ver.error || 'Verification unavailable: could not query Polygon Amoy', 'warning')
+      } else {
+        showToast('Report was published by an unauthorized publisher', 'error')
+      }
+      return ver
+    } catch (err: any) {
+      showToast(err.message || 'Failed to verify CTI report', 'error')
+      throw err
+    }
   }, [showToast])
 
   const discardCTI = useCallback(async (id: string) => {
     try {
       await apiDelete(`/cti/${id}`)
-    } catch {
-      // Fallback
+    } catch (err) {
+      showToast(`Could not discard draft: ${errorMessage(err)}`, 'error')
+      throw err
     }
     setCtiState(s => ({ ...s, data: s.data.filter(r => r._id !== id) }))
     showToast('Draft discarded', 'info')
   }, [showToast])
 
-  const inviteUser = useCallback(async (userData: { name: string; email: string; temporaryPassword: string; role: UserRole }) => {
-    const newUser: TeamUser = {
-      _id: `usr-${Date.now()}`,
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      isActive: true,
-      lastLoginAt: new Date().toISOString(),
+  const shareReport = useCallback(async (
+    id: string,
+    visibility: 'PRIVATE' | 'SHARED_SELECTED' | 'SHARED_ALL',
+    sharedWithOrgIds?: string[],
+  ): Promise<CTIReport> => {
+    try {
+      const data = await apiPost<{ report: CTIReport }>(`/cti/${id}/share`, { visibility, sharedWithOrgIds })
+      setCtiState(s => ({ ...s, data: s.data.map(r => (r._id === id || r.reportId === id ? { ...r, ...data.report } : r)) }))
+      showToast(
+        visibility === 'PRIVATE' ? 'Report set to private'
+          : visibility === 'SHARED_ALL' ? 'Report shared with all organizations'
+          : `Report shared with ${sharedWithOrgIds?.length ?? 0} organization(s)`,
+        'success',
+      )
+      return data.report
+    } catch (err) {
+      showToast(`Could not update sharing: ${errorMessage(err)}`, 'error')
+      throw err
     }
+  }, [showToast])
+
+  const fetchShareTargets = useCallback(async (): Promise<{ id: string; name: string }[]> => {
+    const data = await apiGet<{ organizations: { id: string; name: string }[] }>('/cti/share-targets')
+    return data.organizations
+  }, [])
+
+  const inviteUser = useCallback(async (userData: { name: string; email: string; temporaryPassword: string; role: UserRole }) => {
     try {
       await apiPost('/users', userData)
-      await fetchTeam()
-    } catch {
-      setTeamState(s => ({ ...s, data: [...s.data, newUser] }))
+    } catch (err) {
+      showToast(`Could not invite ${userData.email}: ${errorMessage(err)}`, 'error')
+      throw err
     }
-    showToast(`Invitation sent to ${userData.email}`, 'success')
+    await fetchTeam()
+    showToast(`Account created for ${userData.email}. Share the temporary password with them securely; no email is sent.`, 'success')
   }, [fetchTeam, showToast])
 
   const changeUserRole = useCallback(async (id: string, role: UserRole) => {
     try {
       await apiPatch(`/users/${id}/role`, { role })
-    } catch {
-      // Fallback
+    } catch (err) {
+      showToast(`Could not change role: ${errorMessage(err)}`, 'error')
+      throw err
     }
     setTeamState(s => ({
       ...s,
@@ -758,8 +860,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else {
         await apiPatch(`/users/${id}/reactivate`)
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      showToast(`Could not update user: ${errorMessage(err)}`, 'error')
+      throw err
     }
     setTeamState(s => ({
       ...s,
@@ -790,6 +893,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     detectionsLoading: detectionState.loading,
     detectionsError: detectionState.error,
     refetchDetections: fetchDetections,
+    detectionsTotal: detectionPaging.total,
+    detectionsHasMore: detectionPaging.hasMore,
+    loadMoreDetections,
+    detectionSummary: detectionSummaryState.data,
+    detectionSummaryLoading: detectionSummaryState.loading,
+    detectionSummaryError: detectionSummaryState.error,
+    refetchDetectionSummary: fetchDetectionSummary,
 
     ctiReports: ctiState.data,
     ctiLoading: ctiState.loading,
@@ -814,6 +924,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     globalFeed: feedState.data,
     feedLoading: feedState.loading,
     feedError: feedState.error,
+    refetchFeed,
 
     // Policies
     policies: policyState.data,
@@ -850,7 +961,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     generateCTI,
     updateCTIDraft,
     publishCTI,
+    verifyCTI,
     discardCTI,
+    shareReport,
+    fetchShareTargets,
     inviteUser,
     generateInvitation,
     changeUserRole,

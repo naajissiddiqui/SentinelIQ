@@ -1,0 +1,256 @@
+{
+  "label_rules_version": "cicddos2019-0311-v1",
+  "dataset": "CIC-DDoS2019",
+  "provenance": {
+    "source": "Canadian Institute for Cybersecurity (UNB), CIC-DDoS2019 official CICFlowMeter CSVs",
+    "dataset_page": "https://www.unb.ca/cic/datasets/ddos-2019.html",
+    "download": "http://cicresearch.ca/CICDataset/CICDDoS2019/ (registration form)",
+    "citation": "I. Sharafaldin, A. H. Lashkari, S. Hakak, A. A. Ghorbani, 'Developing Realistic Distributed Denial of Service (DDoS) Attack Dataset and Taxonomy', IEEE ICCST 2019",
+    "archive": {
+      "name": "CSV-03-11.zip",
+      "bytes": 918815761,
+      "sha256": "a81d8ce59a819d13e6bfea4e4812d6d144d0572b6d2c42d8e0c0a8cf1c26c263"
+    },
+    "source_files": [
+      {
+        "name": "LDAP.csv",
+        "bytes": 871398918,
+        "sha256": "d1cfc7cb9252b73d9789f7307d7583be9c3a8e90ee9c096eefe8b0d3d8be23c3"
+      },
+      {
+        "name": "MSSQL.csv",
+        "bytes": 2386225228,
+        "sha256": "d13cf30e7b987f7e916c54643f2e03dd4c31fc4b2051be175d5ee83d392d8f88"
+      },
+      {
+        "name": "NetBIOS.csv",
+        "bytes": 1418468105,
+        "sha256": "ddd2e8cd76c125e1d93094af519845e2ed1eaf44edcd3f783b3a9dee638a5e1e"
+      },
+      {
+        "name": "Portmap.csv",
+        "bytes": 78611080,
+        "sha256": "d0148da21f3c645b32b21b59386721eddd497a16e3de4e2950391e575fca2e28"
+      },
+      {
+        "name": "Syn.csv",
+        "bytes": 1877372065,
+        "sha256": "603648e7c56e9232b6d647470dc01b6451502c594a4ebf235b45103edb5e545a"
+      },
+      {
+        "name": "UDP.csv",
+        "bytes": 1792797298,
+        "sha256": "27e262e851f12a5fc29cd433fec53a63e9e8fc3cfdc1a1d78f77995bd175a59b"
+      },
+      {
+        "name": "UDPLag.csv",
+        "bytes": 319793413,
+        "sha256": "c8a471f56721118dc0c5ae86ae348cd261f81cf7313c08f5bbdf913005ce7ced"
+      }
+    ],
+    "csv_clock_utc_offset": "-03:00",
+    "timezone_evidence": "Measured 2026-10-18 by matching identical 5-tuples between official flows and netsensor flows from PCAP-03-11 files _0, _01, _030, _080, _0120, _0137, _0145: 832,366 matches at exactly +3 h (UTC = CSV + 3 h) across all 7 CSV files, median residual 0.000 ms, 88-100% within 1 ms per file; other offsets only as chance matches with residuals of hundreds of ms.",
+    "derivation": {
+      "script": "sensor/labels/derive_cicddos2019.py",
+      "victim": "192.168.50.4",
+      "attacker": "172.16.0.5",
+      "flood_flows_per_s": 100,
+      "merge_gap_s": 10,
+      "min_episode_s": 20,
+      "csv_first_timestamp": "2018-11-03 09:18:16.964447",
+      "csv_last_timestamp": "2018-11-03 17:36:41.528982",
+      "dropped_short_episodes": [
+        {
+          "start": "2018-11-03T09:48:06-03:00",
+          "end": "2018-11-03T09:48:07-03:00",
+          "official_label_counts": {
+            "Portmap": 209
+          }
+        },
+        {
+          "start": "2018-11-03T10:50:13-03:00",
+          "end": "2018-11-03T10:50:14-03:00",
+          "official_label_counts": {
+            "MSSQL": 541
+          }
+        },
+        {
+          "start": "2018-11-03T10:53:18-03:00",
+          "end": "2018-11-03T10:53:19-03:00",
+          "official_label_counts": {
+            "UDP": 105
+          }
+        },
+        {
+          "start": "2018-11-03T11:03:53-03:00",
+          "end": "2018-11-03T11:03:54-03:00",
+          "official_label_counts": {
+            "UDP": 103
+          }
+        },
+        {
+          "start": "2018-11-03T11:43:44-03:00",
+          "end": "2018-11-03T11:43:45-03:00",
+          "official_label_counts": {
+            "Syn": 204
+          }
+        }
+      ]
+    },
+    "verified": true,
+    "verified_by": "Claude Code (AI assistant), automated verification run sensor/labels/verify_cicddos2019.py, performed with the explicit approval of the project owner",
+    "verified_on": "2026-10-18",
+    "notes": "Derived automatically from the official CSVs; verified by the automated run recorded under 'verification'. Low-rate families (PORTMAP, UDP_LAG) and the attacker's background are ambiguous, not attack.",
+    "verification": {
+      "script": "sensor/labels/verify_cicddos2019.py",
+      "criteria_version": 2,
+      "result": "PASS",
+      "report": {
+        "path": "C:/datasets/cicddos2019-labels/verification/verify-2026-10-18-criteria-v2-run2.json",
+        "sha256": "5435609a8c658c44257eaf9be0d91ac2a0a797aa64a2e2a039c35595b7eb0564"
+      },
+      "rules_sha256_verified": "4c503656544768bd29d37a52b5c299d708f74391843927d721a51295e44e607d",
+      "checks": {
+        "coverage": true,
+        "evidence": true,
+        "exclusion": true,
+        "hashes": true,
+        "outside": true,
+        "pair": true,
+        "purity": true,
+        "rederive": true
+      },
+      "summary": {
+        "flood_core_or_guard_share": {
+          "LDAP": 0.999901,
+          "MSSQL": 0.998992,
+          "NetBIOS": 0.999978,
+          "Syn": 0.998795,
+          "UDP": 0.999241
+        },
+        "official_benign_flows_in_attack_cores": 10,
+        "attack_flows_in_attack_cores": 19409465,
+        "attack_flows_outside_attacker_victim_pair": 0,
+        "attack_flows_outside_exclude_interval": 0
+      },
+      "documented_deviations": [
+        "112,304 flows officially labelled Portmap lie inside the NETBIOS flood core and are labelled NETBIOS (Portmap.csv time slice ends at 10:01 local, inside the NetBIOS flood; 95.17% of that core's flows are NetBIOS).",
+        "PORTMAP and UDP_LAG (low-rate, not separable from the attacker's background) and all attacker/victim windows outside flood cores are ambiguous, not attack: conservative, so they are excluded from training."
+      ],
+      "earlier_attempt": {
+        "criteria_version": 1,
+        "result": "FAIL",
+        "report": {
+          "path": "C:/datasets/cicddos2019-labels/verification/verify-2026-10-18.json",
+          "sha256": "050ff0efb48149a9b3eb0eb28d246e55be5c5b777cfd0ed1572a66fb9cb549f0"
+        },
+        "why": "v1 required >= 97% of flood flows in cores alone and no above-threshold second outside intervals; guard bands and the documented dropped spikes are ambiguous by design, so v2 tests that no attack flow can fall in a benign window and adds a purity check."
+      }
+    }
+  },
+  "guard_seconds": 10,
+  "intervals": [
+    {
+      "start": "2018-11-03T10:01:25-03:00",
+      "end": "2018-11-03T10:09:27-03:00",
+      "official_label_counts": {
+        "NetBIOS": 3656781,
+        "Portmap": 185582
+      },
+      "id": "netbios-1",
+      "family": "NETBIOS",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 0.9517
+    },
+    {
+      "start": "2018-11-03T10:21:54-03:00",
+      "end": "2018-11-03T10:29:55-03:00",
+      "official_label_counts": {
+        "LDAP": 1914186
+      },
+      "id": "ldap-1",
+      "family": "LDAP",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "start": "2018-11-03T10:34:02-03:00",
+      "end": "2018-11-03T10:39:08-03:00",
+      "official_label_counts": {
+        "MSSQL": 3672296
+      },
+      "id": "mssql-1",
+      "family": "MSSQL",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "start": "2018-11-03T10:39:58-03:00",
+      "end": "2018-11-03T10:43:04-03:00",
+      "official_label_counts": {
+        "MSSQL": 2107087
+      },
+      "id": "mssql-2",
+      "family": "MSSQL",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "start": "2018-11-03T10:52:39-03:00",
+      "end": "2018-11-03T10:53:08-03:00",
+      "official_label_counts": {
+        "UDP": 13273
+      },
+      "id": "udp-1",
+      "family": "UDP",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "start": "2018-11-03T10:53:45-03:00",
+      "end": "2018-11-03T11:02:50-03:00",
+      "official_label_counts": {
+        "UDP": 3848219
+      },
+      "id": "udp-2",
+      "family": "UDP",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "start": "2018-11-03T11:29:17-03:00",
+      "end": "2018-11-03T11:37:18-03:00",
+      "official_label_counts": {
+        "Syn": 4882113
+      },
+      "id": "syn-1",
+      "family": "SYN",
+      "victims": [
+        "192.168.50.4"
+      ],
+      "majority_share": 1.0
+    },
+    {
+      "id": "attacker-victim-background",
+      "kind": "exclude",
+      "start": "2018-11-03T00:00:00-03:00",
+      "end": "2018-11-04T00:00:00-03:00",
+      "victims": [
+        "192.168.50.4",
+        "172.16.0.5"
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Building2, Lock, Shield, ToggleLeft, ToggleRight, Ticket, Plus, Copy, Check } from 'lucide-react'
+import { User, Building2, Lock, Shield, Ticket, Plus, Copy, Check } from 'lucide-react'
 import { useApp } from '@/lib/context'
 import { Button, Input, Card, RoleBadge, P, BORDER, MUTED, TEXT, GREEN } from '@/components/ui'
 
@@ -15,7 +15,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false)
   const [genLoading, setGenLoading] = useState(false)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
-  const [ctiSharing, setCtiSharing] = useState(true)
 
   const handlePasswordChange = async () => {
     if (!currentPw || !newPw || !confirmPw) { setPwError('All password fields are required.'); setPwSuccess(''); return }
@@ -204,20 +203,13 @@ export default function SettingsPage() {
           <Shield size={16} className="text-slate-400" />
           <h2 className="text-sm font-semibold text-navy-900">CTI Sharing Preferences</h2>
         </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-navy-900">Contribute to global CTI feed</p>
-            <p className="text-xs text-slate-500 mt-0.5">Published reports will appear anonymously in the global feed, shared with all verified organizations on the network.</p>
-          </div>
-          <button
-            onClick={() => setCtiSharing(v => !v)}
-            className="flex-shrink-0 cursor-pointer"
-          >
-            {ctiSharing
-              ? <ToggleRight size={28} className="text-emerald-500" />
-              : <ToggleLeft size={28} className="text-slate-400" />
-            }
-          </button>
+        <div>
+          <p className="text-sm font-medium text-navy-900">Published reports are shared with every organization</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            When an analyst publishes a CTI report it appears in the CTI Feed for every organization on this SentinelIQ
+            deployment, and its content hash is anchored on Polygon Amoy. Reports name the affected endpoint, so review
+            each draft before publishing. Sharing is not configurable per organization.
+          </p>
         </div>
       </Card>
 

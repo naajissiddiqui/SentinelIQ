@@ -24,6 +24,7 @@ import { P, STORM, BG, TEXT, MUTED, BORDER, RED, AMBER, GREEN } from './ui'
 import { getSocket } from '@/lib/socket'
 import { apiGet } from '@/lib/api'
 import type { TimelineEvent, TimelineEventType, TimelineActorType } from '@/lib/types'
+import { presentDetectionText } from '@/lib/sanitizers'
 
 function formatTimestamp(isoString: string) {
   const d = new Date(isoString)
@@ -275,7 +276,7 @@ export function ResponseTimeline({
                   </div>
 
                   <p className="text-[13px] font-medium text-slate-800 leading-snug">
-                    {ev.message}
+                    {presentDetectionText(ev.message)}
                   </p>
 
                   {/* Metadata display if available */}
@@ -293,7 +294,7 @@ export function ResponseTimeline({
                       )}
                       {Boolean(ev.metadata.reason) && (
                         <span className="text-slate-500 italic">
-                          "{String(ev.metadata.reason)}"
+                          "{presentDetectionText(String(ev.metadata.reason))}"
                         </span>
                       )}
                     </div>

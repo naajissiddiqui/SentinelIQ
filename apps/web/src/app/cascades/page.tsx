@@ -49,6 +49,13 @@ const STATUS_BADGES: Record<CascadeStatus, { bg: string; color: string }> = {
   RESOLVED: { bg: '#F0FDF4', color: GREEN },
 }
 
+/** Enum values such as AT_RISK or DATA_EXFILTRATION shown as words. */
+function label(value?: string): string {
+  if (!value) return 'Not stated'
+  const words = value.replace(/_/g, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 export default function CascadesPage() {
   const { cascades, endpoints, currentUser, containCascade, resolveCascade, navigate } = useApp()
 
@@ -213,7 +220,7 @@ export default function CascadesPage() {
               </span>
             </div>
             <p className="text-[11px] mt-1.5" style={{ color: MUTED }}>
-              Sliding cross-host heuristic
+              Sliding window across endpoints (server setting)
             </p>
           </div>
         </div>
@@ -259,7 +266,7 @@ export default function CascadesPage() {
                           className="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
                           style={{ backgroundColor: stBadge.bg, color: stBadge.color }}
                         >
-                          {cascade.status}
+                          {label(cascade.status)}
                         </span>
 
                         <span className="text-[11px] font-mono text-slate-500">
@@ -276,7 +283,7 @@ export default function CascadesPage() {
                       </h3>
 
                       <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded-lg border" style={{ borderColor: BORDER }}>
-                        <strong>Correlation Heuristic:</strong> {cascade.correlationReason}
+                        <strong>Why correlated:</strong> {cascade.correlationReason}
                       </p>
 
                       {/* Affected Endpoints & IOC Pills */}
@@ -392,7 +399,7 @@ export default function CascadesPage() {
             <div className="p-4 rounded-xl bg-slate-50 border space-y-2" style={{ borderColor: BORDER }}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Attack Classification</span>
-                <span className="text-xs font-mono font-bold text-slate-800">{selectedCascade.attackType}</span>
+                <span className="text-xs font-bold text-slate-800">{label(selectedCascade.attackType)}</span>
               </div>
               <h3 className="text-base font-bold text-slate-900">{selectedCascade.title}</h3>
               <p className="text-xs text-slate-600">{selectedCascade.correlationReason}</p>
@@ -410,7 +417,7 @@ export default function CascadesPage() {
               </div>
               <div className="p-3 rounded-lg border bg-white" style={{ borderColor: BORDER }}>
                 <p className="text-[10px] font-bold uppercase text-slate-400">Status</p>
-                <p className="text-sm font-bold text-slate-800 mt-0.5">{selectedCascade.status}</p>
+                <p className="text-sm font-bold text-slate-800 mt-0.5">{label(selectedCascade.status)}</p>
               </div>
             </div>
 
@@ -434,7 +441,7 @@ export default function CascadesPage() {
 
                       <div className="flex items-center gap-2">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${epObj?.status === 'ISOLATED' ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
-                          {epObj?.status || 'AT_RISK'}
+                          {epObj?.status ? label(epObj.status) : 'Status unknown'}
                         </span>
                         {epId && (
                           <button

@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test src/lib/alertSummary.test.mjs src/lib/dosDetection.test.mjs src/lib/detectionExport.test.mjs src/lib/demoSeverity.test.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.26.0",

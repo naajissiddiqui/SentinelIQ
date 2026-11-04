@@ -27,6 +27,8 @@ import config as cfg
 # Your files — must be in the same directory
 from feature_extractor import FeatureExtractor
 from sliding_window_buffer import SlidingWindowBuffer
+from privilege_escalation import PrivilegeEscalationDetector
+from mitre_mapper import map_mitre_techniques
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -244,8 +246,21 @@ class Agent:
             from isolation_provider import WindowsSafeDemoIsolationProvider
             self.isolation_provider = WindowsSafeDemoIsolationProvider()
 
+        # Security/System log reader for PE rules (account, group, service, task events)
+        self.event_log_reader = None
+        if self.telemetry_mode != "simulated":
+            try:
+                from windows_event_reader import WindowsEventLogReader
+                self.event_log_reader = WindowsEventLogReader()
+            except Exception as e:
+                cprint(f"[Agent] Security/System event log reader unavailable: {e}", YELLOW)
+
         self.buffer   = SlidingWindowBuffer(window_size_seconds=WINDOW_SIZE_SECONDS)
         self.extractor = FeatureExtractor()
+        self.pe_detector = PrivilegeEscalationDetector()
+        # All new (deduplicated) events from the last poll, before the ransomware
+        # whitelist/PID filter, so PE rules see e.g. svchost/services activity
+        self._pe_pending_events: list = []
 
         # De-duplication: track the highest record_id seen so far
         self._last_record_id: int = 0
@@ -324,18 +339,22 @@ class Agent:
 
     # ── Poll Sysmon for new events ────────────────────────────────────────────
 
-    def _poll(self) -> int:
+    def _poll(self):
         """
         Read new Sysmon events, deduplicate, dispatch to buffer.
-        Returns number of new events added.
+        Returns (number of new events added, list of new events).
         """
         raw_events = self.reader.read_latest(MAX_EVENTS_PER_READ)
 
-        # read_latest returns NEWEST first (EvtQueryReverseDirection)
-        # Reverse so we process oldest→newest, keeping timestamps monotonic
-        raw_events = list(reversed(raw_events))
+        # Process oldest→newest by record_id, keeping timestamps monotonic.
+        # Sysmon returns newest first (EvtQueryReverseDirection) but the simulated
+        # provider returns oldest first; sorting handles both, whereas a plain
+        # reverse would make the record_id dedupe below drop all but one event.
+        raw_events = sorted(raw_events, key=lambda e: e.get("record_id", 0))
 
         new_count = 0
+        new_events_list = []
+        self._pe_pending_events = []
         for event in raw_events:
             record_id = event.get("record_id", 0)
 
@@ -344,6 +363,7 @@ class Agent:
                 continue
 
             self._last_record_id = max(self._last_record_id, record_id)
+            self._pe_pending_events.append(event)
 
             pid = event.get("pid")
             if pid is None:
@@ -354,9 +374,10 @@ class Agent:
                 continue
 
             self.buffer.add_event(pid, event)
+            new_events_list.append(event)
             new_count += 1
 
-        return new_count
+        return new_count, new_events_list
 
     # ── Score one process window ──────────────────────────────────────────────
 
@@ -431,7 +452,8 @@ class Agent:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
-    def run(self):
+    def run(self, duration: Optional[float] = None):
+        """Main loop. duration: stop after this many seconds (None = run until Ctrl+C)."""
         _enable_color()
         cprint("\n" + "="*60, CYAN)
         cprint("  RANSOMWARE DETECTION AGENT", CYAN, bold=True)
@@ -441,14 +463,29 @@ class Agent:
         cprint("="*60 + "\n", CYAN)
 
         step = 0
+        run_started = time.monotonic()
         try:
             while True:
+                if duration is not None and time.monotonic() - run_started >= duration:
+                    cprint(f"\n[Agent] Run duration of {duration:.0f}s reached; stopping.", YELLOW)
+                    break
                 step += 1
                 t_start = time.monotonic()
 
                 # 1. Read new events
-                new_events = self._poll()
+                new_events, new_events_list = self._poll()
                 self._total_events_seen += new_events
+
+                # 1b. Evaluate Privilege Escalation detection rules when enabled
+                # (alert-only: alerts are reported, never auto-remediated)
+                if cfg.PRIVILEGE_ESCALATION_DETECTION:
+                    pe_events = list(self._pe_pending_events)
+                    if self.event_log_reader is not None:
+                        pe_events.extend(self.event_log_reader.read_new())
+                    # Related events are grouped, so an alert is released a few
+                    # seconds after the first event of its attack sequence.
+                    for pe_alert in self.pe_detector.process_events(pe_events):
+                        self._handle_pe_alert(pe_alert)
 
                 # 2. Score every active PID window
                 windows = self.buffer.get_all_windows()
@@ -523,9 +560,26 @@ class Agent:
         except KeyboardInterrupt:
             cprint("\n[Agent] Stopped by user.", YELLOW)
         finally:
+            # Release PE alerts still inside their correlation window
+            if cfg.PRIVILEGE_ESCALATION_DETECTION:
+                for pe_alert in self.pe_detector.flush_all():
+                    self._handle_pe_alert(pe_alert)
             if self.csv_logger:
                 self.csv_logger.close()
                 cprint(f"[Agent] CSV saved: {self.csv_logger.path}", GREEN)
+
+    def _handle_pe_alert(self, pe_alert: dict):
+        grouped = pe_alert.get("correlated_events", 1)
+        cprint(
+            f"\n{'!'*60}\n"
+            f"  ⚠  [PRIVILEGE ESCALATION ALERT] {pe_alert['rule_id']} — {pe_alert['title']}\n"
+            f"  Confidence: {pe_alert['confidence_tier'].upper()} | Severity: {pe_alert['severity']} | Risk: {pe_alert['risk_score']}/100\n"
+            f"  Process: {pe_alert['process_name']} (PID {pe_alert['pid']})"
+            + (f" | {grouped} correlated events" if grouped > 1 else "") + "\n"
+            f"{'!'*60}",
+            RED, bold=True
+        )
+        self._report_pe_alert(pe_alert)
 
     def _send_heartbeat(self):
         """Sends CPU, RAM, and Disk usage stats to the backend to keep status ONLINE."""
@@ -654,8 +708,15 @@ class Agent:
                 else:
                     self._acknowledge_action(action_id, status="ACKNOWLEDGED")
 
+    def _data_origin(self) -> str:
+        """SIMULATED when events come from the in-memory simulator, LIVE for real Sysmon telemetry."""
+        from telemetry_provider import SimulatedTelemetryProvider
+        if isinstance(getattr(self, "reader", None), SimulatedTelemetryProvider):
+            return "SIMULATED"
+        return "SIMULATED" if getattr(self, "telemetry_mode", "real") == "simulated" else "LIVE"
+
     def _report_ransomware_alert(self, pid: int, process_name: str, score: float) -> bool:
-        """Sends a critical ransomware detection alert to the backend."""
+        """Sends a critical ransomware detection alert to the backend with MITRE mappings."""
         if not cfg.ENDPOINT_ID or not cfg.AUTO_REPORT_DETECTIONS:
             return False
 
@@ -666,9 +727,15 @@ class Agent:
         try:
             import requests
             now_iso = datetime.now(timezone.utc).isoformat()
+            mitre_mappings = map_mitre_techniques("RANSOMWARE-XGB", [f"ev-xgb-{pid}"])
             payload = {
                 "organizationId": cfg.ORGANIZATION_ID,
                 "endpointId": cfg.ENDPOINT_ID,
+                "attackType": "RANSOMWARE",
+                "ruleId": "RANSOMWARE-XGB",
+                # Simulated telemetry must never be presented as live endpoint activity.
+                "dataOrigin": self._data_origin(),
+                "confidenceTier": "confirmed",
                 "riskScore": int(round(score * 100)),
                 "indicators": [
                     {
@@ -683,20 +750,71 @@ class Agent:
                     },
                     {
                         "type": "TELEMETRY_PATTERN",
-                        "description": "Simulated ransomware telemetry indicators detected" if self.telemetry_mode == "simulated" else "Real Sysmon events triggered local XGBoost thresholds",
+                        "description": "Simulated ransomware telemetry indicators detected" if self.telemetry_mode == "simulated" else "Live Sysmon events exceeded the machine-learning detector's alert threshold",
                         "observedAt": now_iso
                     }
                 ],
-                "modelVersion": "agent-v0.1"
+                "evidence": [
+                    {
+                        "id": f"ev-xgb-{pid}",
+                        "source": "ml_classifier",
+                        "description": f"Machine-learning behavioural classifier score: {score:.3f}",
+                        "time": now_iso,
+                        "fields": {
+                            "PID": pid,
+                            "ProcessName": process_name,
+                            "Score": score,
+                        }
+                    }
+                ],
+                "mitre": mitre_mappings,
+                "modelVersion": "xgboost-v1.0.0"
             }
             headers = {"x-api-key": cfg.BACKEND_API_KEY}
             url = f"{cfg.BACKEND_API_URL}/api/detections/ingest"
             response = requests.post(url, json=payload, headers=headers, timeout=5)
             response.raise_for_status()
-            cprint("  [Detection] Alert reported to backend successfully.", GREEN)
+            cprint("  [Detection] Ransomware alert reported to backend successfully.", GREEN)
             return True
         except Exception as e:
             cprint(f"  [Detection] Failed to report alert to backend: {e}", RED)
+            return False
+
+    def _report_pe_alert(self, alert: dict) -> bool:
+        """Sends a privilege escalation detection alert to the backend with evidence and MITRE mappings."""
+        if not cfg.ENDPOINT_ID or not cfg.AUTO_REPORT_DETECTIONS:
+            return False
+
+        if self.isolation_provider.is_isolated:
+            cprint("  [Detection] Endpoint is currently ISOLATED. Alert reporting suppressed.", YELLOW)
+            return False
+
+        try:
+            import requests
+            timestamp = alert.get("timestamp")
+            now_iso = timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
+            payload = {
+                "organizationId": cfg.ORGANIZATION_ID,
+                "endpointId": cfg.ENDPOINT_ID,
+                "attackType": "PRIVILEGE_ESCALATION",
+                "ruleId": alert.get("rule_id", "PE-UNKNOWN"),
+                "dataOrigin": self._data_origin(),
+                "confidenceTier": alert.get("confidence_tier", "likely"),
+                "riskScore": int(alert.get("risk_score", 80)),
+                "indicators": alert.get("indicators", []),
+                "evidence": alert.get("evidence", []),
+                "mitre": alert.get("mitre", []),
+                "modelVersion": "rule-pe-v2.0.0",
+                "detectedAt": now_iso,
+            }
+            headers = {"x-api-key": cfg.BACKEND_API_KEY}
+            url = f"{cfg.BACKEND_API_URL}/api/detections/ingest"
+            response = requests.post(url, json=payload, headers=headers, timeout=5)
+            response.raise_for_status()
+            cprint(f"  [PE Detection] Alert {alert.get('rule_id')} reported to backend successfully.", GREEN)
+            return True
+        except Exception as e:
+            cprint(f"  [PE Detection] Failed to report PE alert to backend: {e}", RED)
             return False
 
 
@@ -723,8 +841,12 @@ def main():
         help="Override TELEMETRY_MODE ('real' or 'simulated')"
     )
     parser.add_argument(
-        "--scenario", choices=["normal", "ransomware"],
-        help="Override SIMULATION_SCENARIO ('normal' or 'ransomware')"
+        "--scenario", choices=["normal", "ransomware", "privilege_escalation"],
+        help="Override SIMULATION_SCENARIO ('normal', 'ransomware' or 'privilege_escalation')"
+    )
+    parser.add_argument(
+        "--duration", type=float, metavar="SECONDS",
+        help="Stop the agent after this many seconds (default: run until Ctrl+C)"
     )
     args = parser.parse_args()
 
@@ -734,7 +856,7 @@ def main():
         mode=args.mode,
         scenario=args.scenario,
     )
-    agent.run()
+    agent.run(duration=args.duration)
 
 
 if __name__ == "__main__":

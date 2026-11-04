@@ -9,6 +9,17 @@
     "blockchain",
     "packages/shared-types"
   ],
-  "scripts": {},
+  "scripts": {
+    "dev:backend": "npm --workspace=apps/backend run dev",
+    "dev:web": "npm --workspace=apps/web run dev",
+    "dev:frontend": "npm --workspace=apps/web run dev",
+    "seed": "npm --workspace=apps/backend run seed",
+    "seed:detections": "npm --workspace=apps/backend run seed:detections",
+    "build": "npm --workspace=packages/shared-types run build && npm --workspace=apps/backend run build && npm --workspace=apps/web run build",
+    "test:blockchain": "npm --workspace=blockchain test",
+    "demo": "node scripts/demo/run-demo.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "replay:recorded": "node scripts/replay-recorded-traffic.mjs"
+  },
   "license": "UNLICENSED"
 }

@@ -1,8 +1,8 @@
 export type EndpointStatus = 'PENDING' | 'ONLINE' | 'OFFLINE' | 'AT_RISK' | 'ISOLATED'
 export type DetectionSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export type DetectionStatus = 'NEW' | 'INVESTIGATING' | 'RESOLVED' | 'FALSE_POSITIVE'
-export type CTIStatus = 'DRAFT' | 'PUBLISHED' | 'FAILED'
-export type VerificationStatus = 'VERIFIED' | 'PENDING' | 'FAILED'
+export type CTIStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'PUBLISHING' | 'PUBLISHED' | 'ANCHORED' | 'FAILED'
+export type VerificationStatus = 'VERIFIED' | 'PENDING' | 'FAILED' | 'TAMPERED' | 'UNANCHORED' | 'UNTRUSTED_PUBLISHER' | 'UNAVAILABLE'
 export type UserRole = 'ORG_ADMIN' | 'SECURITY_ANALYST' | 'SUPER_ADMIN'
 
 export type TimelineEventType =
@@ -112,19 +112,79 @@ export interface CTIMatchResult {
   matchedAt?: string
 }
 
+export interface MitreMapping {
+  tacticId: string
+  tacticName: string
+  techniqueId: string
+  techniqueName: string
+  attackVersion: string
+  referenceUrl: string
+  evidenceRef?: string[]
+  /** Why this technique was assigned (rule mapping, detection behaviour or indicator). */
+  mappingReason?: string
+}
+
+export interface EvidenceItem {
+  id: string
+  source: string
+  eventId?: number
+  time: string
+  description: string
+  fields?: Record<string, any>
+}
+
 export interface Detection {
   _id: string
   endpointName: string
   endpointId: string
+  attackType?: string
+  ruleId?: string
+  confidenceTier?: 'suspicious' | 'likely' | 'confirmed' | string
   riskScore: number
   severity: DetectionSeverity
   status: DetectionStatus
   indicators: Indicator[]
+  evidence?: EvidenceItem[]
+  mitre?: MitreMapping[]
+  modelVersion?: string
   detectedAt: string
   resolvedAt?: string
   resolvedByUserId?: string
   ctiMatch?: CTIMatchResult
   cascadeId?: string
+  /** DoS/DDoS: LIVE or PCAP_REPLAY. PCAP replay is never shown as live traffic. */
+  dataOrigin?: 'LIVE' | 'PCAP_REPLAY' | string
+  /** DoS/DDoS: TRAINED model or transparent HEURISTIC. */
+  detectorStatus?: 'TRAINED' | 'HEURISTIC' | string
+}
+
+/** GET /detections: one page plus the total matching the query. */
+export interface DetectionPage {
+  detections: Detection[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
+/** GET /detections/summary: organisation-wide counts computed in MongoDB. */
+export interface DetectionSummary {
+  total: number
+  active: number
+  byStatus: Record<string, number>
+  bySeverity: Record<string, number>
+  byAttackType: Record<string, number>
+  byDataOrigin: Record<string, number>
+  byDetectorStatus: Record<string, number>
+  timeline: Array<{ date: string; count: number }>
+  techniques: Array<{ techniqueId: string; techniqueName: string; tacticName: string; count: number }>
+  unmappedDetections: number
+  ctiMatched: number
+  /** Which records the figures cover; ordinary views use 'incidents'. */
+  scope: 'incidents' | 'test' | 'all'
+  /** Demonstration or simulated records held for the organisation, excluded from incident figures. */
+  testRecords: number
+  generatedAt: string
 }
 
 export type PolicyConditionField =
@@ -217,17 +277,76 @@ export interface Cascade {
 
 export interface CTIReport {
   _id: string
+  reportId?: string
+  schemaVersion?: string
   detectionId: string
+  attackType?: string
+  title?: string
+  detectedAt?: string
+  severity?: DetectionSeverity
+  riskScore?: number
+  confidenceTier?: string
   attackSummary: string
   indicatorsOfCompromise: string[]
   recommendedActions: string[]
-  analystNotes: string
-  status: CTIStatus
+  analystNotes?: string
+  detector?: {
+    type: string
+    id: string
+    version: string
+  }
+  evidence?: EvidenceItem[]
+  mitre?: MitreMapping[]
+  hostRef?: string
+  dataOrigin?: string
+  visibility?: 'PRIVATE' | 'SHARED_SELECTED' | 'SHARED_ALL'
+  sharedWithOrgIds?: string[]
+  /** True when the signed-in org owns this report; false when it was shared with them. */
+  owned?: boolean
+  version?: number
+  supersedes?: string | null
+  status: CTIStatus | 'PENDING_APPROVAL' | 'PUBLISHING' | 'ANCHORED'
   transactionHash: string | null
   blockNumber: number | null
-  verificationStatus: VerificationStatus
+  publisherAddress?: string | null
+  verificationStatus?: VerificationStatus
+  lastVerifiedAt?: string | null
+  contentHash?: string
+  canonicalJson?: string
+  // On-chain anchor metadata (set only from real provider responses)
+  anchorKey?: string | null
+  contractAddress?: string | null
+  chainId?: number | null
+  network?: string | null
+  anchorError?: string | null
+  failedTransactionHashes?: string[]
   publishedAt: string | null
   createdAt: string
+  updatedAt?: string
+}
+
+export interface CTIVerificationResult {
+  reportId: string
+  status: 'VERIFIED' | 'TAMPERED' | 'UNANCHORED' | 'UNTRUSTED_PUBLISHER' | 'UNAVAILABLE'
+  matches: boolean
+  recomputedHash: string
+  onChainHash: string | null
+  persistedHash: string | null
+  publisher: string | null
+  isAuthorizedPublisher: boolean | null
+  timestamp: string | null
+  transactionHash: string | null
+  transactionConfirmed: boolean | null
+  blockNumber: number | null
+  contractAddress: string
+  chainId: number
+  network: string
+  checks: {
+    persistedHashMatchesRecomputed: boolean | null
+    persistedCanonicalJsonMatches: boolean | null
+    onChainHashMatchesRecomputed: boolean | null
+  }
+  error?: string
 }
 
 export interface TeamUser {

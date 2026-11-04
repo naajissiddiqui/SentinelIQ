@@ -1,0 +1,14 @@
+{
+  "contract": "CTIRegistry",
+  "network": "polygon-amoy",
+  "chainId": 80002,
+  "address": "0xAAc39CC2A0B2A37F85bD56421483475c36295beb",
+  "transactionHash": "0x82e76f7b74d4c426320008ae177db02f945a3f44403d74a868020f71d40bd659",
+  "blockNumber": 50431439,
+  "deployer": "0x0c61b52871F6617CCE3d9Ac01f044595A126615D",
+  "owner": "0x0c61b52871F6617CCE3d9Ac01f044595A126615D",
+  "gasUsed": "521407",
+  "deployedBytecodeKeccak256": "0x0d291b53e27a3b4a037eb37a9c77052723520faf537758c748eb747ed9e431f6",
+  "deployedAt": "2026-10-17T16:20:00.585Z",
+  "explorer": "https://amoy.polygonscan.com/tx/0x82e76f7b74d4c426320008ae177db02f945a3f44403d74a868020f71d40bd659"
+}
