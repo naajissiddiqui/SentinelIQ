@@ -1,6 +1,6 @@
 # SentinelIQ
 
-> Autonomous multi-threat detection, automated response, and blockchain-anchored Cyber Threat Intelligence (CTI) platform.
+> Autonomous multi-threat detection, automated response, and blockchain-anchored Cyber Threat Intelligence (CTI) platform
 
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
